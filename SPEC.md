@@ -324,6 +324,7 @@ Top-level keys:
 - `hooks`
 - `agent`
 - `codex`
+- `validation`
 
 Unknown keys should be ignored for forward compatibility.
 
@@ -443,6 +444,56 @@ fields locally if they want stricter startup checks.
   - Default: `300000` (5 minutes)
   - If `<= 0`, stall detection is disabled.
 
+#### 5.3.7 `validation` (object)
+
+The optional `validation` block defines ticket-aware validation guidance. If omitted, the runtime
+must provide a loosest default rule so prompts still receive validation guidance.
+
+Fields:
+
+- `levels` (list of objects)
+  - Defines named validation activities.
+  - Required fields:
+    - `name` (string): normalized by trimming whitespace and lowercasing.
+  - Optional fields:
+    - `description` (string)
+    - `command` (string): suggested command or activity to render in the prompt.
+    - `unavailable_behavior` (string): supported values are `manual_handoff` and
+      `blocked_with_reason`.
+- `evidence_types` (list of objects)
+  - Defines supported evidence artifacts separately from validation activities.
+  - Required fields:
+    - `name` (string): supported values are `none`, `logs`, `screenshot`, and `video`.
+  - Optional fields:
+    - `description` (string)
+- `default_rule` (object)
+  - The loosest fallback rule used when issue labels are missing, non-standard, or unmatched.
+  - Fields:
+    - `id` (string)
+    - `description` (string, optional)
+    - `levels` (list of required-level objects)
+- `rules` (list of objects)
+  - Linear label matching rules evaluated in workflow order.
+  - Fields:
+    - `id` (string)
+    - `description` (string, optional)
+    - `labels` (list of strings): normalized by trimming whitespace and lowercasing.
+    - `levels` (list of required-level objects)
+
+Required-level object:
+
+- `name` (string): references a configured validation level.
+- `evidence_type` (string): references a configured evidence type and defaults to `none`.
+
+Validation behavior:
+
+- Reject unsupported `unavailable_behavior` values with an invalid workflow config error.
+- Reject unsupported evidence type names with an invalid workflow config error.
+- Reject rules that reference unknown validation levels or unknown configured evidence types.
+- Preserve `rules` order and select the first rule whose normalized `labels` intersect normalized
+  `issue.labels`.
+- Use `default_rule` when labels are missing, non-standard, or unmatched.
+
 ### 5.4 Prompt Template Contract
 
 The Markdown body of `WORKFLOW.md` is the per-issue prompt template.
@@ -460,6 +511,12 @@ Template input variables:
 - `attempt` (integer or null)
   - `null`/absent on first attempt.
   - Integer on retry or continuation run.
+- `validation` (object)
+  - Resolved prompt-ready validation guidance for the current issue.
+  - Includes `matched_rule`, `fallback`, `fallback_reason`, `required_levels`, and
+    `required_evidence_types`.
+  - `required_levels` expands configured level metadata and keeps `evidence_type` separate from the
+    level name.
 
 Fallback prompt behavior:
 
@@ -581,6 +638,10 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `codex.stall_timeout_ms`: integer, default `300000`
 - `server.port` (extension): integer, optional; enables the optional HTTP server, `0` may be used
   for ephemeral local bind, and CLI `--port` overrides it
+- `validation.levels`: list of validation level objects
+- `validation.evidence_types`: list of supported evidence type objects
+- `validation.default_rule`: loosest fallback rule for missing/unmatched labels
+- `validation.rules`: ordered Linear label rules; first matching rule wins
 
 ## 7. Orchestration State Machine
 
@@ -1238,6 +1299,8 @@ Inputs to prompt rendering:
 - `workflow.prompt_template`
 - normalized `issue` object
 - optional `attempt` integer (retry/continuation metadata)
+- resolved `validation` guidance object derived from workflow validation config and the issue's
+  Linear labels
 
 ### 12.2 Rendering Rules
 
@@ -1245,6 +1308,9 @@ Inputs to prompt rendering:
 - Render with strict filter checking.
 - Convert issue object keys to strings for template compatibility.
 - Preserve nested arrays/maps (labels, blockers) so templates can iterate.
+- Convert validation guidance keys to strings for template compatibility.
+- Validation guidance should be resolved before rendering; templates should not need to choose a rule
+  from raw workflow configuration.
 
 ### 12.3 Retry/Continuation Semantics
 

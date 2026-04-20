@@ -33,7 +33,7 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
    set it as the `LINEAR_API_KEY` environment variable.
 3. Copy this directory's `WORKFLOW.md` to your repo.
-4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
+4. Copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
      operations such as comment editing or upload flows.
 5. Customize the copied `WORKFLOW.md` file for your project.
@@ -56,8 +56,7 @@ mise exec -- elixir --version
 ## Run
 
 ```bash
-git clone https://github.com/openai/symphony
-cd symphony/elixir
+cd elixir
 mise trust
 mise install
 mise exec -- mix setup
@@ -67,13 +66,15 @@ mise exec -- ./bin/symphony ./WORKFLOW.md
 
 ## Configuration
 
-Pass a custom workflow file path to `./bin/symphony` when starting the service:
+Run `./bin/symphony` from the `elixir/` application directory and pass a custom workflow file
+path there:
 
 ```bash
+cd elixir
 ./bin/symphony /path/to/custom/WORKFLOW.md
 ```
 
-If no path is passed, Symphony defaults to `./WORKFLOW.md`.
+If no path is passed, Symphony defaults to `./WORKFLOW.md` relative to `elixir/`.
 
 Optional flags:
 

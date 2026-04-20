@@ -199,6 +199,183 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defmodule ValidationLevel do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias SymphonyElixir.Config.Schema
+
+    @primary_key false
+
+    @type t :: %__MODULE__{
+            name: String.t() | nil,
+            description: String.t() | nil,
+            command: String.t() | nil,
+            unavailable_behavior: String.t() | nil
+          }
+
+    embedded_schema do
+      field(:name, :string)
+      field(:description, :string)
+      field(:command, :string)
+      field(:unavailable_behavior, :string, default: "manual_handoff")
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:name, :description, :command, :unavailable_behavior], empty_values: [])
+      |> update_change(:name, &Schema.normalize_validation_name/1)
+      |> update_change(:unavailable_behavior, &Schema.normalize_validation_name/1)
+      |> validate_required([:name, :unavailable_behavior])
+      |> validate_inclusion(:unavailable_behavior, Schema.supported_validation_unavailable_behaviors(), message: "is unsupported")
+    end
+  end
+
+  defmodule ValidationEvidenceType do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias SymphonyElixir.Config.Schema
+
+    @primary_key false
+
+    @type t :: %__MODULE__{
+            name: String.t() | nil,
+            description: String.t() | nil
+          }
+
+    embedded_schema do
+      field(:name, :string)
+      field(:description, :string)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:name, :description], empty_values: [])
+      |> update_change(:name, &Schema.normalize_validation_name/1)
+      |> validate_required([:name])
+      |> validate_inclusion(:name, Schema.supported_validation_evidence_types(), message: "is unsupported")
+    end
+  end
+
+  defmodule ValidationRuleLevel do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias SymphonyElixir.Config.Schema
+
+    @primary_key false
+
+    @type t :: %__MODULE__{
+            name: String.t() | nil,
+            evidence_type: String.t() | nil
+          }
+
+    embedded_schema do
+      field(:name, :string)
+      field(:evidence_type, :string, default: "none")
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:name, :evidence_type], empty_values: [])
+      |> update_change(:name, &Schema.normalize_validation_name/1)
+      |> update_change(:evidence_type, &Schema.normalize_validation_name/1)
+      |> validate_required([:name, :evidence_type])
+      |> validate_inclusion(:evidence_type, Schema.supported_validation_evidence_types(), message: "is unsupported")
+    end
+  end
+
+  defmodule ValidationRule do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias SymphonyElixir.Config.Schema
+
+    @primary_key false
+
+    @type t :: %__MODULE__{
+            id: String.t() | nil,
+            description: String.t() | nil,
+            labels: [String.t()],
+            levels: [Schema.ValidationRuleLevel.t()]
+          }
+
+    embedded_schema do
+      field(:id, :string)
+      field(:description, :string)
+      field(:labels, {:array, :string}, default: [])
+
+      embeds_many(:levels, Schema.ValidationRuleLevel, on_replace: :delete)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:id, :description, :labels], empty_values: [])
+      |> update_change(:id, &Schema.normalize_validation_name/1)
+      |> update_change(:labels, &normalize_labels/1)
+      |> validate_required([:id])
+      |> validate_change(:labels, &validate_labels/2)
+      |> cast_embed(:levels, with: &Schema.ValidationRuleLevel.changeset/2, required: true)
+    end
+
+    defp normalize_labels(labels) when is_list(labels) do
+      Enum.map(labels, &Schema.normalize_validation_name/1)
+    end
+
+    defp normalize_labels(labels), do: labels
+
+    defp validate_labels(:labels, labels) do
+      if Enum.any?(labels, &(&1 == "")) do
+        [labels: "must not include blank labels"]
+      else
+        []
+      end
+    end
+  end
+
+  defmodule Validation do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias SymphonyElixir.Config.Schema
+
+    @primary_key false
+
+    @type t :: %__MODULE__{
+            levels: [Schema.ValidationLevel.t()],
+            evidence_types: [Schema.ValidationEvidenceType.t()],
+            default_rule: Schema.ValidationRule.t() | nil,
+            rules: [Schema.ValidationRule.t()]
+          }
+
+    embedded_schema do
+      embeds_many(:levels, Schema.ValidationLevel, on_replace: :delete)
+      embeds_many(:evidence_types, Schema.ValidationEvidenceType, on_replace: :delete)
+      embeds_one(:default_rule, Schema.ValidationRule, on_replace: :update)
+      embeds_many(:rules, Schema.ValidationRule, on_replace: :delete)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [])
+      |> cast_embed(:levels, with: &Schema.ValidationLevel.changeset/2)
+      |> cast_embed(:evidence_types, with: &Schema.ValidationEvidenceType.changeset/2)
+      |> cast_embed(:default_rule, with: &Schema.ValidationRule.changeset/2)
+      |> cast_embed(:rules, with: &Schema.ValidationRule.changeset/2)
+    end
+  end
+
   defmodule Hooks do
     @moduledoc false
     use Ecto.Schema
@@ -268,6 +445,7 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:validation, Validation, on_replace: :update)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
@@ -282,7 +460,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> apply_action(:validate)
     |> case do
       {:ok, settings} ->
-        {:ok, finalize_settings(settings)}
+        finalize_settings(settings)
 
       {:error, changeset} ->
         {:error, {:invalid_workflow_config, format_errors(changeset)}}
@@ -323,6 +501,24 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   @doc false
+  @spec supported_validation_evidence_types() :: [String.t()]
+  def supported_validation_evidence_types, do: ["none", "logs", "screenshot", "video"]
+
+  @doc false
+  @spec supported_validation_unavailable_behaviors() :: [String.t()]
+  def supported_validation_unavailable_behaviors, do: ["manual_handoff", "blocked_with_reason"]
+
+  @doc false
+  @spec normalize_validation_name(term()) :: term()
+  def normalize_validation_name(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  def normalize_validation_name(value), do: value
+
+  @doc false
   @spec normalize_state_limits(nil | map()) :: map()
   def normalize_state_limits(nil), do: %{}
 
@@ -360,30 +556,150 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+    |> cast_embed(:validation, with: &Validation.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
   end
 
   defp finalize_settings(settings) do
-    tracker = %{
-      settings.tracker
-      | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
-        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
+    with {:ok, validation} <- finalize_validation(settings.validation) do
+      tracker = %{
+        settings.tracker
+        | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
+          assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
+      }
+
+      workspace = %{
+        settings.workspace
+        | root: resolve_path_value(settings.workspace.root, Path.join(System.tmp_dir!(), "symphony_workspaces"))
+      }
+
+      codex = %{
+        settings.codex
+        | approval_policy: normalize_keys(settings.codex.approval_policy),
+          turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
+      }
+
+      {:ok, %{settings | tracker: tracker, workspace: workspace, codex: codex, validation: validation}}
+    end
+  end
+
+  defp finalize_validation(nil), do: {:ok, default_validation()}
+
+  defp finalize_validation(%Validation{} = validation) do
+    validation = %{
+      validation
+      | levels: validation.levels || [],
+        evidence_types: validation.evidence_types || [],
+        rules: validation.rules || []
     }
 
-    workspace = %{
-      settings.workspace
-      | root: resolve_path_value(settings.workspace.root, Path.join(System.tmp_dir!(), "symphony_workspaces"))
-    }
+    with :ok <- require_non_empty_validation_list(validation.levels, "validation.levels"),
+         :ok <- require_non_empty_validation_list(validation.evidence_types, "validation.evidence_types"),
+         :ok <- require_validation_default_rule(validation.default_rule),
+         :ok <- validate_unique_validation_names(validation.levels, "validation.levels"),
+         :ok <- validate_unique_validation_names(validation.evidence_types, "validation.evidence_types"),
+         level_names <- validation_names(validation.levels),
+         evidence_names <- validation_names(validation.evidence_types),
+         :ok <- validate_validation_rule("validation.default_rule", validation.default_rule, level_names, evidence_names, false),
+         :ok <- validate_validation_rules(validation.rules, level_names, evidence_names) do
+      {:ok, validation}
+    else
+      {:error, message} ->
+        {:error, {:invalid_workflow_config, message}}
+    end
+  end
 
-    codex = %{
-      settings.codex
-      | approval_policy: normalize_keys(settings.codex.approval_policy),
-        turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
+  defp default_validation do
+    %Validation{
+      levels: [
+        %ValidationLevel{
+          name: "compile",
+          description: "Run the minimum project-safe static or compile validation.",
+          unavailable_behavior: "blocked_with_reason"
+        }
+      ],
+      evidence_types: [
+        %ValidationEvidenceType{
+          name: "none",
+          description: "No external artifact required; record the result in the workpad."
+        }
+      ],
+      default_rule: %ValidationRule{
+        id: "loosest",
+        description: "Loosest default validation guidance for unlabeled or unmatched tickets.",
+        labels: [],
+        levels: [%ValidationRuleLevel{name: "compile", evidence_type: "none"}]
+      },
+      rules: []
     }
+  end
 
-    %{settings | tracker: tracker, workspace: workspace, codex: codex}
+  defp require_non_empty_validation_list([], path), do: {:error, "#{path} must include at least one entry"}
+  defp require_non_empty_validation_list(_items, _path), do: :ok
+
+  defp require_validation_default_rule(nil), do: {:error, "validation.default_rule can't be blank"}
+  defp require_validation_default_rule(%ValidationRule{}), do: :ok
+
+  defp validate_unique_validation_names(items, path) do
+    duplicate =
+      items
+      |> Enum.map(& &1.name)
+      |> Enum.frequencies()
+      |> Enum.find(fn {_name, count} -> count > 1 end)
+
+    case duplicate do
+      {name, _count} -> {:error, "#{path} contains duplicate name #{inspect(name)}"}
+      nil -> :ok
+    end
+  end
+
+  defp validation_names(items) do
+    items
+    |> Enum.map(& &1.name)
+    |> MapSet.new()
+  end
+
+  defp validate_validation_rules(rules, level_names, evidence_names) do
+    rules
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {rule, index}, :ok ->
+      case validate_validation_rule("validation.rules[#{index}]", rule, level_names, evidence_names, true) do
+        :ok -> {:cont, :ok}
+        {:error, message} -> {:halt, {:error, message}}
+      end
+    end)
+  end
+
+  defp validate_validation_rule(path, %ValidationRule{} = rule, level_names, evidence_names, labels_required) do
+    cond do
+      labels_required and rule.labels == [] ->
+        {:error, "#{path}.labels must include at least one Linear label"}
+
+      rule.levels in [nil, []] ->
+        {:error, "#{path}.levels must include at least one validation level"}
+
+      true ->
+        validate_validation_rule_levels(path, rule.levels, level_names, evidence_names)
+    end
+  end
+
+  defp validate_validation_rule_levels(path, levels, level_names, evidence_names) do
+    levels
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {level, index}, :ok ->
+      cond do
+        not MapSet.member?(level_names, level.name) ->
+          {:halt, {:error, "#{path}.levels[#{index}].name references unknown validation level #{inspect(level.name)}"}}
+
+        not MapSet.member?(evidence_names, level.evidence_type) ->
+          {:halt, {:error, "#{path}.levels[#{index}].evidence_type references unknown evidence type #{inspect(level.evidence_type)}"}}
+
+        true ->
+          {:cont, :ok}
+      end
+    end)
   end
 
   defp normalize_keys(value) when is_map(value) do
@@ -543,7 +859,10 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp flatten_errors(errors, prefix) when is_list(errors) do
-    Enum.map(errors, &(prefix <> " " <> &1))
+    Enum.flat_map(errors, fn
+      message when is_binary(message) -> [prefix <> " " <> message]
+      nested -> flatten_errors(nested, prefix)
+    end)
   end
 
   defp translate_error({message, options}) do
