@@ -56,8 +56,7 @@ mise exec -- elixir --version
 ## Run
 
 ```bash
-git clone https://github.com/openai/symphony
-cd symphony/elixir
+cd elixir
 mise trust
 mise install
 mise exec -- mix setup
@@ -67,13 +66,15 @@ mise exec -- ./bin/symphony ./WORKFLOW.md
 
 ## Configuration
 
-Pass a custom workflow file path to `./bin/symphony` when starting the service:
+Run `./bin/symphony` from the `elixir/` application directory and pass a custom workflow file
+path there:
 
 ```bash
+cd elixir
 ./bin/symphony /path/to/custom/WORKFLOW.md
 ```
 
-If no path is passed, Symphony defaults to `./WORKFLOW.md`.
+If no path is passed, Symphony defaults to `./WORKFLOW.md` relative to `elixir/`.
 
 Optional flags:
 
