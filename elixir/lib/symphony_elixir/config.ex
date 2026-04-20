@@ -4,6 +4,8 @@ defmodule SymphonyElixir.Config do
   """
 
   alias SymphonyElixir.Config.Schema
+  alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.ValidationGuidance
   alias SymphonyElixir.Workflow
 
   @default_prompt_template """
@@ -81,6 +83,17 @@ defmodule SymphonyElixir.Config do
       _ ->
         @default_prompt_template
     end
+  end
+
+  @spec validation_settings() :: Schema.Validation.t()
+  def validation_settings do
+    settings!().validation
+  end
+
+  @spec validation_guidance(Issue.t() | map() | nil) :: ValidationGuidance.guidance()
+  def validation_guidance(issue) do
+    validation_settings()
+    |> ValidationGuidance.resolve(issue)
   end
 
   @spec server_port() :: non_neg_integer() | nil

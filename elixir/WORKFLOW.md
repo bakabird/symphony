@@ -34,6 +34,81 @@ codex:
   thread_sandbox: workspace-write
   turn_sandbox_policy:
     type: workspaceWrite
+validation:
+  levels:
+    - name: compile
+      description: "Run the narrowest compile/static/test command that proves changed code still works."
+      command: "cd elixir && mise exec -- mix test"
+      unavailable_behavior: blocked_with_reason
+    - name: launch
+      description: "Launch the affected service, UI, or runtime path when behavior depends on a running system."
+      unavailable_behavior: manual_handoff
+    - name: reproduce
+      description: "Capture the pre-fix issue signal or explain why reproduction is impossible in this environment."
+      unavailable_behavior: manual_handoff
+    - name: changed_flow
+      description: "Exercise the user-visible or operational flow changed by the patch."
+      unavailable_behavior: manual_handoff
+  evidence_types:
+    - name: none
+      description: "No external artifact required beyond a concise workpad result."
+    - name: logs
+      description: "Command output, log excerpt, or deterministic textual result."
+    - name: screenshot
+      description: "Screenshot proving the visual or UI state."
+    - name: video
+      description: "Short recording proving an interactive or temporal flow."
+  default_rule:
+    id: loosest
+    description: "Loosest default for missing, non-standard, or unmatched Linear labels."
+    levels:
+      - name: compile
+        evidence_type: none
+  rules:
+    - id: docs
+      description: "Documentation-only work."
+      labels: [docs, documentation, readme]
+      levels:
+        - name: compile
+          evidence_type: none
+    - id: ci
+      description: "CI, build, or test infrastructure work."
+      labels: [ci, build, test, tests]
+      levels:
+        - name: compile
+          evidence_type: logs
+    - id: bug
+      description: "Bug fixes require reproduction plus changed-flow validation."
+      labels: [bug, defect, regression]
+      levels:
+        - name: reproduce
+          evidence_type: logs
+        - name: compile
+          evidence_type: logs
+        - name: changed_flow
+          evidence_type: logs
+    - id: visual
+      description: "Visual or UI changes require visual proof of the changed path."
+      labels: [visual, ui, frontend]
+      levels:
+        - name: compile
+          evidence_type: logs
+        - name: launch
+          evidence_type: screenshot
+        - name: changed_flow
+          evidence_type: screenshot
+    - id: gameplay
+      description: "Interactive/gameplay work requires runtime media for reproduction and changed flow."
+      labels: [gameplay, game]
+      levels:
+        - name: reproduce
+          evidence_type: video
+        - name: compile
+          evidence_type: logs
+        - name: launch
+          evidence_type: video
+        - name: changed_flow
+          evidence_type: video
 ---
 
 You are working on a Linear ticket `{{ issue.identifier }}`
@@ -53,6 +128,24 @@ Title: {{ issue.title }}
 Current status: {{ issue.state }}
 Labels: {{ issue.labels }}
 URL: {{ issue.url }}
+
+Resolved validation guidance:
+Matched rule: {{ validation.matched_rule.id }} ({% if validation.fallback %}default fallback: {{ validation.fallback_reason }}{% else %}matched labels: {{ validation.matched_rule.matched_labels }}{% endif %})
+
+Required validation levels:
+{% for level in validation.required_levels %}
+- `{{ level.name }}`: {{ level.description }}
+  - required evidence: `{{ level.evidence_type }}`
+  - unavailable behavior: `{{ level.unavailable_behavior }}`
+  {% if level.command %}
+  - suggested command/activity: `{{ level.command }}`
+  {% endif %}
+{% endfor %}
+
+Required evidence types:
+{% for evidence in validation.required_evidence_types %}
+- `{{ evidence.name }}` for levels {{ evidence.levels }}{% if evidence.description %}: {{ evidence.description }}{% endif %}
+{% endfor %}
 
 Description:
 {% if issue.description %}
@@ -82,7 +175,8 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 - Keep ticket metadata current (state, checklist, acceptance criteria, links).
 - Treat a single persistent Linear comment as the source of truth for progress.
 - Use that single workpad comment for all progress and handoff notes; do not post separate "done"/summary comments.
-- Treat any ticket-authored `Validation`, `Test Plan`, or `Testing` section as non-negotiable acceptance input: mirror it in the workpad and execute it before considering the work complete.
+- Follow the resolved validation guidance above. Run or explicitly hand off every required validation level, and capture the required evidence type for each level.
+- Treat any ticket-authored `Validation`, `Test Plan`, or `Testing` section as non-negotiable additive acceptance input: mirror it in the workpad and execute it in addition to the resolved validation levels. Ticket-authored requirements can add work, but they cannot reduce configured validation requirements.
 - When meaningful out-of-scope improvements are discovered during execution,
   file a separate Linear issue instead of expanding scope. The follow-up issue
   must include a clear title, description, and acceptance criteria, be placed in
@@ -208,11 +302,12 @@ Use this only when completion is blocked by missing required tools or missing au
     - For tickets that started as `Todo` with an attached PR, run the full PR feedback sweep protocol immediately after kickoff and before new feature work.
 5.  Run validation/tests required for the scope.
     - Mandatory gate: execute all ticket-provided `Validation`/`Test Plan`/ `Testing` requirements when present; treat unmet items as incomplete work.
+    - Mandatory gate: execute every required level from the resolved validation guidance and record the required evidence type for that level.
     - Prefer a targeted proof that directly demonstrates the behavior you changed.
     - You may make temporary local proof edits to validate assumptions (for example: tweak a local build input for `make`, or hardcode a UI account / response path) when this increases confidence.
     - Revert every temporary proof edit before commit/push.
     - Document these temporary proof steps and outcomes in the workpad `Validation`/`Notes` sections so reviewers can follow the evidence.
-    - If app-touching, run `launch-app` validation and capture/upload media via `github-pr-media` before handoff.
+    - If runtime or media evidence is unavailable, record the unavailable reason and residual risk for that exact validation level instead of marking it complete.
 6.  Re-check all acceptance criteria and close any gaps.
 7.  Before every `git push` attempt, run the required validation for your scope and confirm it passes; if it fails, address issues and rerun until green, then commit and push changes.
 8.  Attach PR URL to the issue (prefer attachment; use the workpad comment only if attachment is unavailable).
@@ -267,7 +362,7 @@ Use this only when completion is blocked by missing required tools or missing au
 - PR feedback sweep is complete and no actionable comments remain.
 - PR checks are green, branch is pushed, and PR is linked on the issue.
 - Required PR metadata is present (`symphony` label).
-- If app-touching, runtime validation/media requirements from `App runtime validation (required)` are complete.
+- Runtime validation/media requirements from the resolved validation guidance are complete, or each unavailable level has a concrete handoff reason and residual-risk note.
 
 ## Guardrails
 
@@ -314,7 +409,10 @@ Use this exact structure for the persistent workpad comment and keep it updated 
 
 ### Validation
 
-- [ ] targeted tests: `<command>`
+- Resolved rule: `<validation.matched_rule.id>` (`rule` or `default fallback`)
+- Required evidence types: `<none|logs|screenshot|video>`
+- [ ] `<level-name>` requires `<evidence-type>`: captured `<evidence/result>`; unavailable reason `<none|reason>`; residual risk `<none|risk>`
+- [ ] Ticket-authored `Validation`/`Test Plan`/`Testing` requirements: `<copied requirement or none>`
 
 ### Notes
 
