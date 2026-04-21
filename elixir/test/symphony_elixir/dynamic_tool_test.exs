@@ -65,6 +65,23 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert response["contentItems"] == [%{"type" => "inputText", "text" => response["output"]}]
   end
 
+  test "linear_graphql sanitizes invalid UTF-8 in successful responses" do
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{"viewer" => %{"name" => <<"bad-", 255>>}}}}
+        end
+      )
+
+    assert response["success"] == true
+
+    assert Jason.decode!(response["output"]) == %{
+             "data" => %{"viewer" => %{"name" => <<"bad-", 0xEF, 0xBF, 0xBD>>}}
+           }
+  end
+
   test "linear_graphql accepts a raw GraphQL query string" do
     test_pid = self()
 
