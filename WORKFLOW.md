@@ -19,7 +19,7 @@ workspace:
   root: ~/code/symphony-workspaces
 hooks:
   after_create: |
-    git clone --depth 1 --branch miision https://github.com/bakabird/symphony.git .
+    git clone --depth 1 https://github.com/bakabird/symphony.git .
     if command -v mise >/dev/null 2>&1; then
       cd elixir && mise trust && mise exec -- mix deps.get
     fi
@@ -162,7 +162,7 @@ Instructions:
 4. Work only in the provided repository copy. Do not touch any other path.
 5. Use a single persistent `## Codex Workpad` comment for all progress, plan, and handoff notes.
 6. Before implementation, capture a concrete reproduction signal and record it in the workpad `Notes` section.
-7. Sync with `origin/mission` before edits, then record the pull result and resulting `HEAD` short SHA in the workpad.
+7. Sync with `origin/main` before edits, then record the pull result and resulting `HEAD` short SHA in the workpad.
 8. Keep ticket metadata current, including state, checklist, acceptance criteria, and links.
 9. If you find meaningful out-of-scope work, file a separate Linear issue instead of expanding scope.
 
@@ -191,7 +191,7 @@ The agent must be able to talk to Linear, either via a configured Linear MCP ser
 
 ## PR requirements
 
-- Target the GitHub PR at the `mission` base branch.
+- Target the GitHub PR at the `main` base branch.
 - Ensure the GitHub PR has the `symphony` label.
 - Follow the repo PR template exactly.
 - Use the `pull`, `push`, and `land` skills when they apply.
