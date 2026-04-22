@@ -12,21 +12,20 @@ This report summarizes an exploration of three related product and architecture 
 
 This is a discussion artifact only. It does not propose or implement code changes.
 
-## Current Shape
+## 已执行
 
-The root `SPEC.md` already describes Symphony as a scheduler/runner with separate coordination,
-execution, integration, and observability layers. The implementation, however, still centers on
-Linear and Codex in several places:
+### 1) 现状盘点（Current Shape）
 
-- `elixir/lib/symphony_elixir/agent_runner.ex` directly starts `SymphonyElixir.Codex.AppServer`.
-- Runtime state and observability names use `codex_*` fields throughout the orchestrator/dashboard.
-- `elixir/lib/symphony_elixir/config/schema.ex` has a top-level `codex` config block rather than a generic agent backend block.
-- `elixir/lib/symphony_elixir/tracker.ex` has a tracker boundary, but the normalized data model is still `SymphonyElixir.Linear.Issue`.
-- `elixir/lib/symphony_elixir/codex/dynamic_tool.ex` exposes only `linear_graphql`.
-- `elixir/WORKFLOW.md` hardcodes Linear-oriented behaviors: Linear MCP or `linear_graphql`, Linear state transitions, a single Linear workpad comment, and Linear follow-up issue creation.
-- `SPEC.md` already calls out future work for first-class tracker write APIs and pluggable issue tracker adapters.
+已完成对当前实现和架构差距的梳理，结论是系统虽有分层设计，但实现仍偏向 Codex + Linear：
 
-Conceptually, the current system looks like this:
+- `elixir/lib/symphony_elixir/agent_runner.ex` 直接启动 `SymphonyElixir.Codex.AppServer`。
+- 运行态与可观测命名大量使用 `codex_*`。
+- `elixir/lib/symphony_elixir/config/schema.ex` 仍是顶层 `codex` 配置块。
+- `elixir/lib/symphony_elixir/tracker.ex` 的标准模型仍是 `SymphonyElixir.Linear.Issue`。
+- `elixir/lib/symphony_elixir/codex/dynamic_tool.ex` 仅暴露 `linear_graphql`。
+- `elixir/WORKFLOW.md` 仍硬编码 Linear 状态流与工作记录路径。
+
+当前概念链路（已确认）：
 
 ```text
 Linear issue
@@ -36,32 +35,13 @@ Tracker facade -> Orchestrator -> AgentRunner -> Codex.AppServer
    |                                      |
    |                                      `-> codex_* telemetry / app-server protocol
    `-> linear_graphql dynamic tool
-
-WORKFLOW.md:
-  Linear statuses
-  Linear workpad comment
-  Codex Workpad
-  app-touching validation policy
 ```
 
-This is functional for the first implementation, but it makes future support for OpenCode, Claude
-Code, GitHub Issues, Jira, or non-ticket workflows look like exceptions rather than first-class
-paths.
+### 2) 核心方案讨论产出（Discussion Summary）
 
-## Discussion Summary
+#### A. Agent 后端泛化（Codex/OpenCode/Claude Code）
 
-### 1. Support Codex, OpenCode, and Claude Code
-
-This should not be modeled as only a different command string.
-
-Codex app-server, OpenCode, and Claude Code expose different automation surfaces:
-
-- Codex currently fits the existing long-lived app-server shape: start session, start turn, stream events, serve dynamic tools, complete turn, continue thread.
-- OpenCode has multiple usable surfaces: `opencode run --format json`, `opencode serve`, and `opencode acp`.
-- Claude Code supports headless CLI usage with streamable JSON output, session resume, permission modes, and MCP/permission hooks. ACP adapters may provide a more protocol-like integration path.
-- ACP itself is a JSON-RPC protocol over stdio for editor-agent interaction, with session and prompt lifecycle methods.
-
-The more durable abstraction is an `AgentBackend` boundary:
+已形成统一抽象方向：用 `AgentBackend` 边界而不是仅替换命令字符串。
 
 ```text
 AgentBackend
@@ -69,72 +49,20 @@ AgentBackend
   run_turn(session, prompt, opts)
   cancel(session)
   stop_session(session)
-
-Normalized events:
-  session_started
-  turn_started
-  tool_requested
-  permission_requested
-  message_delta
-  usage_updated
-  turn_completed
-  turn_failed
 ```
 
-Possible backend families:
+已识别候选后端族：
 
-- `codex_app_server`: the existing backend, renamed and contained behind the generic interface.
-- `acp_stdio`: likely the best shared target for OpenCode and future ACP-compatible agents.
-- `claude_cli_stream`: a direct Claude Code fallback using non-interactive stream JSON.
-- `opencode_http`: optional, useful if the service wants to manage or attach to `opencode serve`.
+- `codex_app_server`
+- `acp_stdio`
+- `claude_cli_stream`
+- `opencode_http`（可选）
 
-Important design pressure:
+#### B. Work Channel 模块化（去 Linear 强耦合）
 
-- Preserve multi-turn continuation semantics where possible.
-- Normalize telemetry without pretending every backend has identical token, rate-limit, approval, or tool-call events.
-- Keep backend-specific policy fields contained under backend config, rather than spreading `codex_*`, `claude_*`, and `opencode_*` names through orchestration state.
+已形成方向：从 `Issue` 过渡到 `WorkItem`，从单一评论语义过渡到 `ProgressNote`，并拆分读取与写入职责。
 
-### 2. Decouple Linear into Modular Work Channels
-
-The existing tracker adapter boundary is a useful starting point, but the real coupling is broader
-than issue polling.
-
-The workflow relies on:
-
-- candidate work discovery,
-- state refresh and reconciliation,
-- semantic state transitions,
-- a durable workpad/progress note,
-- PR/artifact linking,
-- comments and review feedback,
-- follow-up work creation,
-- raw Linear GraphQL as an agent tool.
-
-A better model is to separate work discovery from work mutation and progress recording:
-
-```text
-                 +----------------------+
-                 |      WorkChannel      |
-                 | Linear/GitHub/Jira/...|
-                 +----------+-----------+
-                            |
-                            v
-+--------------+     +--------------+     +----------------+
-| ProgressNote |<--->|   WorkItem    |--->|  Orchestrator   |
-+--------------+     +--------------+     +-------+--------+
-                                                   |
-                                                   v
-                                        +--------------------+
-                                        |   AgentBackend      |
-                                        | Codex/OpenCode/...  |
-                                        +---------+----------+
-                                                  |
-                                        +---------v----------+
-                                        | ToolBridge / MCP    |
-                                        +--------------------+
-```
-
-Candidate interfaces:
+候选接口已明确：
 
 ```text
 WorkSource:
@@ -147,69 +75,20 @@ WorkSink:
   upsert_progress_note(work_id, marker, body)
   link_artifact(work_id, url, kind)
   create_followup(parent_id, payload)
-
-WorkChannelTools:
-  expose generic tools to the agent
 ```
 
-The key conceptual rename is from `Issue` to `WorkItem`, and from `Linear comment` or `Codex
-Workpad` to `ProgressNote`.
+#### C. 验证策略升级（Validation Evidence Profiles）
 
-For example:
-
-- Linear maps `ProgressNote` to a comment.
-- GitHub Issues maps it to an issue comment.
-- Jira maps it to a comment or remote link.
-- A local or hardware-oriented workflow might map it to a file, lab notebook, or run record.
-
-The agent-facing tool surface should also become generic:
-
-```text
-work.get
-work.progress.get
-work.progress.update
-work.transition
-work.link_artifact
-work.create_followup
-work.comments.list
-```
-
-Raw provider tools such as `linear_graphql`, GitHub GraphQL, or Jira REST can remain as escape
-hatches, but should not be the default portability layer.
-
-### 3. Validation Needs Evidence Profiles
-
-The current workflow has good intent:
-
-- reproduce first,
-- run targeted validation,
-- execute ticket-provided validation requirements,
-- for app-touching changes, run runtime validation and capture media.
-
-The weak point is that it assumes a validation environment that is easy to launch and instrument.
-That is not true for many project types:
-
-- game projects may require a scene, seed, replay, GPU path, or capture rig;
-- hardware projects may require physical devices, firmware flashing, lab equipment, or HIL rigs;
-- mobile projects may need simulators, device accounts, provisioning profiles, or manual device QA;
-- desktop apps may require OS-specific launch permissions and visual confirmation;
-- embedded or backend-adjacent systems may have no meaningful "launch app" equivalent.
-
-The recommended abstraction is not "always run this command"; it is a validation evidence contract:
+已形成方向：从“一刀切命令”升级为“证据契约”。
 
 ```text
 ValidationEvidence
   reproduction_signal
-    before-change behavior is observed or credibly constrained
-
   targeted_proof
-    changed behavior is directly tested
-
   runtime_smoke
-    integrated app/device/game path is exercised when the environment supports it
 ```
 
-Each evidence class can have a status:
+证据状态枚举已讨论完成：
 
 ```text
 required
@@ -219,105 +98,16 @@ not_applicable
 blocked_with_reason
 ```
 
-Example project profiles:
+### 3) 已形成的分解和落地顺序
 
-| Project Type | Reproduction Signal | Targeted Proof | Runtime/App Evidence |
-| --- | --- | --- | --- |
-| CLI/library | failing test or command output | unit/integration test | usually not applicable |
-| Web app | screenshot, Playwright failure, console/log signal | targeted route/component test | browser launch with screenshot/video |
-| Mobile app | simulator repro, build log, screenshot | unit/UI test | simulator/device run or manual handoff |
-| Game | deterministic replay, seed, scene capture | gameplay/system test or golden frame/log | smoke scene, frame capture, FPS/log |
-| Hardware/firmware | device log, bench reading, failing HIL case | HAL mock, firmware test, compile | HIL/manual bench checklist |
-| Desktop app | launch log, repro script, screenshot | targeted component/integration test | app launch and changed-flow check |
+已完成变更拆分建议（A/B/C）与近期开工顺序建议：
 
-The important rule is honesty: if full runtime validation cannot be done in-session, the agent should
-record the gap and residual risk instead of pretending validation happened.
+1. 在规范层定义 `AgentBackend`、`WorkItem`、`ProgressNote`、`ValidationEvidence`。
+2. 在保持现有行为可用前提下，逐步将命名与边界迁移到通用契约。
+3. 增加 ACP 作为首个非 Codex 后端路径。
+4. 在工作流策略引入验证证据 profile，再逐步扩展自动化覆盖。
 
-Example evidence summary:
-
-```text
-Evidence:
-  reproduction: user-provided video plus local log excerpt; physical device unavailable
-  targeted: unit test X passed
-  runtime: manual_handoff; requires iOS device with account Y
-  residual risk: native navigation path was not exercised locally
-```
-
-## Suggested Change Decomposition
-
-These can be separate design changes rather than one large refactor.
-
-### A. Generalized Agent Backends
-
-Goal:
-
-- Move `Codex.AppServer` behind a generic agent backend interface.
-- Normalize agent events and session lifecycle.
-- Preserve the existing Codex path as the first backend.
-- Add an ACP-oriented backend shape for OpenCode and future compatible agents.
-
-Likely first artifacts:
-
-- backend behaviour definition,
-- normalized event schema,
-- config migration from `codex` to `agent_backend` or `executor`,
-- compatibility behavior for existing `codex` config.
-
-### B. Modular Work Channels
-
-Goal:
-
-- Rename orchestration domain concepts from Linear-specific `Issue` naming toward generic `WorkItem`.
-- Split polling, mutation, and progress-note responsibilities.
-- Make Linear one work channel implementation rather than the default mental model.
-- Replace `linear_graphql` as the primary workflow primitive with generic work tools.
-
-Likely first artifacts:
-
-- `WorkItem` normalized model,
-- `WorkSource` and `WorkSink` contracts,
-- `ProgressNote` contract,
-- semantic state mapping,
-- Linear adapter mapped into the new contracts.
-
-### C. Validation Evidence Profiles
-
-Goal:
-
-- Replace one-size-fits-all validation commands with configurable evidence profiles.
-- Keep reproduction and targeted proof as first-class expectations.
-- Allow runtime validation to be required, best-effort, manual-handoff, not applicable, or blocked with reason.
-- Make validation reporting portable across web, app, game, hardware, firmware, and library projects.
-
-Likely first artifacts:
-
-- validation evidence schema,
-- project profile examples,
-- workflow prompt language updates,
-- handoff/reporting requirements for unverified runtime paths.
-
-## Open Questions
-
-- Should ACP be the primary non-Codex integration path, or should OpenCode and Claude Code each get direct first-party backends first?
-- How much of ticket mutation should the orchestrator own versus exposing tools to the agent?
-- Should generic work tools be injected dynamically by Symphony, implemented as MCP servers, or both?
-- What is the minimum common `WorkItem` schema that can support Linear, GitHub Issues, Jira, and local workflows without becoming too vague?
-- Should validation profiles live in `WORKFLOW.md`, a separate file, or generated project metadata?
-- How strict should Symphony be when required evidence is missing: block state transition, mark manual handoff, or allow configurable policy?
-
-## Recommended Near-Term Direction
-
-The most stable sequence appears to be:
-
-1. Define the generic concepts in the spec: `AgentBackend`, `WorkItem`, `ProgressNote`, and `ValidationEvidence`.
-2. Preserve current Codex and Linear behavior while moving names and boundaries toward the generic contracts.
-3. Add an ACP backend as the first non-Codex execution path.
-4. Introduce validation profiles in workflow policy before trying to automate every project type.
-
-This keeps existing behavior usable while reducing the two largest sources of lock-in: Codex-specific
-execution assumptions and Linear-specific collaboration assumptions.
-
-## References
+### 4) 参考资料已收集
 
 - `SPEC.md`
 - `elixir/WORKFLOW.md`
@@ -332,3 +122,36 @@ execution assumptions and Linear-specific collaboration assumptions.
 - Claude Code CLI: https://code.claude.com/docs/en/cli-usage
 - Agent Client Protocol overview: https://agentclientprotocol.com/protocol/overview
 - Agent Client Protocol transports: https://agentclientprotocol.com/protocol/transports
+
+## 待执行
+
+### 1) 规范与配置落地
+
+- 在 `SPEC.md` 引入并固定 `AgentBackend`、`WorkItem`、`ProgressNote`、`ValidationEvidence` 的正式定义。
+- 将配置从 `codex` 迁移到通用 `agent_backend`（或 `executor`）模型，并保留兼容行为。
+
+### 2) AgentBackend 工程化改造
+
+- 抽象 backend behaviour 与统一事件 schema。
+- 将现有 `Codex.AppServer` 封装为 `codex_app_server` 实现。
+- 增加 `acp_stdio` 首个跨代理后端实现。
+
+### 3) Work Channel 工程化改造
+
+- 引入 `WorkItem` 标准模型，替换线性 `Issue` 心智模型。
+- 落地 `WorkSource` / `WorkSink` / `ProgressNote` 契约。
+- 将 Linear 适配到新契约，并提供通用 `work.*` 工具作为默认 agent 工具面。
+
+### 4) Validation Evidence 工程化改造
+
+- 定义验证证据 schema 与项目类型 profile。
+- 更新 workflow prompt 与报告模板，要求在无法做运行态验证时明确 handoff 与残余风险。
+
+### 5) 待决策问题（Open Questions）
+
+- ACP 是否作为非 Codex 集成主路径，还是先做 OpenCode/Claude 各自直连？
+- work item 的变更职责应更多在 orchestrator 还是 agent tools？
+- 通用 work tools 应由 Symphony 动态注入、MCP 提供，还是两者并存？
+- 兼容 Linear/GitHub/Jira/本地流程的最小 `WorkItem` 公共模型如何定义？
+- validation profile 放在 `WORKFLOW.md`、独立文件，还是项目元数据生成？
+- 必需证据缺失时，默认策略是阻断状态流转、标记 handoff，还是可配置？
