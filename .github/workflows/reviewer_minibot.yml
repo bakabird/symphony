@@ -152,6 +152,26 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install "git+https://github.com/NoahLundSyrdal/prReviewer.git@v1.1"
 
+      - name: Test LLM endpoint
+        if: steps.command.outputs.run == 'true'
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          REVIEWER_MODEL: ${{ env.REVIEWER_MODEL }}
+          REVIEWER_BASE_URL: ${{ env.REVIEWER_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          curl -sS -i "$REVIEWER_BASE_URL/chat/completions" \
+            -H "Authorization: Bearer $LLM_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"$REVIEWER_MODEL\",
+              \"messages\": [
+                {\"role\": \"user\", \"content\": \"Return only: ok\"}
+              ],
+              \"temperature\": 0
+            }" | sed -E 's/(Authorization: Bearer )[A-Za-z0-9._-]+/\1***/g'
+
       - name: Run AI review
         if: steps.command.outputs.run == 'true' && steps.patch.outputs.has_diff == 'true'
         working-directory: ${{ runner.temp }}
