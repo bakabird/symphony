@@ -85,17 +85,16 @@ defmodule SymphonyElixir.AgentRunner do
 
     with {:ok, session} <- backend.start_session(context, backend_opts) do
       try do
-        do_run_backend_turns(
-          backend,
-          session,
-          workspace,
-          issue,
-          codex_update_recipient,
-          backend_opts,
-          issue_state_fetcher,
-          1,
-          max_turns
-        )
+        do_run_backend_turns(%{
+          backend: backend,
+          session: session,
+          workspace: workspace,
+          issue: issue,
+          backend_opts: backend_opts,
+          issue_state_fetcher: issue_state_fetcher,
+          turn_number: 1,
+          max_turns: max_turns
+        })
       after
         backend.stop_session(session)
       end
@@ -103,15 +102,16 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp do_run_backend_turns(
-         backend,
-         session,
-         workspace,
-         issue,
-         codex_update_recipient,
-         backend_opts,
-         issue_state_fetcher,
-         turn_number,
-         max_turns
+         %{
+           backend: backend,
+           session: session,
+           workspace: workspace,
+           issue: issue,
+           backend_opts: backend_opts,
+           issue_state_fetcher: issue_state_fetcher,
+           turn_number: turn_number,
+           max_turns: max_turns
+         } = run_state
        ) do
     prompt = build_turn_prompt(issue, backend_opts, turn_number, max_turns)
     turn = build_turn(prompt, turn_number, max_turns)
@@ -124,17 +124,7 @@ defmodule SymphonyElixir.AgentRunner do
         {:continue, refreshed_issue} when turn_number < max_turns ->
           Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
-          do_run_backend_turns(
-            backend,
-            session,
-            workspace,
-            refreshed_issue,
-            codex_update_recipient,
-            backend_opts,
-            issue_state_fetcher,
-            turn_number + 1,
-            max_turns
-          )
+          do_run_backend_turns(%{run_state | issue: refreshed_issue, turn_number: turn_number + 1})
 
         {:continue, refreshed_issue} ->
           Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")

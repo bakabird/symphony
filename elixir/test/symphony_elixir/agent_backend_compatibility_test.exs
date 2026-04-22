@@ -6,6 +6,7 @@ defmodule SymphonyElixir.AgentBackendCompatibilityTest do
   test "agent runner forwards neutral runtime updates through a fake backend and stops the session" do
     test_pid = self()
     issue_id = "issue-fake-backend"
+
     issue = %Issue{
       id: issue_id,
       identifier: "MT-900",
@@ -60,6 +61,7 @@ defmodule SymphonyElixir.AgentBackendCompatibilityTest do
 
   test "codex compatibility backend delegates to app server and normalizes callback events" do
     test_pid = self()
+
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -72,6 +74,7 @@ defmodule SymphonyElixir.AgentBackendCompatibilityTest do
       codex_binary = Path.join(test_root, "fake-codex")
 
       File.mkdir_p!(workspace)
+
       File.write!(codex_binary, """
       #!/bin/sh
       count=0
@@ -156,6 +159,7 @@ defmodule SymphonyElixir.AgentBackendCompatibilityTest do
     end)
 
     initial_state = :sys.get_state(pid)
+
     running_entry = %{
       pid: self(),
       ref: make_ref(),
