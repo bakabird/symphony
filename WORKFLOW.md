@@ -6,7 +6,7 @@ tracker:
     - Todo
     - In Progress
     - Merging
-    - Rework
+    - ReWork
   terminal_states:
     - Closed
     - Cancelled
@@ -186,7 +186,7 @@ The agent must be able to talk to Linear, either via a configured Linear MCP ser
 - `In Progress` -> continue from the existing workpad.
 - `Human Review` -> PR is attached and validated; wait for human approval.
 - `Merging` -> approved by human; execute the `land` skill flow.
-- `Rework` -> reviewer requested changes; plan, implement, and revalidate.
+- `ReWork` -> reviewer requested changes; plan, implement, and revalidate.
 - `Done` -> terminal state; stop.
 
 ## PR requirements
