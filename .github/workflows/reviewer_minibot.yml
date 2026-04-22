@@ -169,8 +169,9 @@ jobs:
               \"messages\": [
                 {\"role\": \"user\", \"content\": \"Return only: ok\"}
               ],
-              \"temperature\": 0
-            }" | sed -E 's/(Authorization: Bearer )[A-Za-z0-9._-]+/\1***/g'
+              \"temperature\": 0,
+              \"stream\": false
+            }"
 
       - name: Run AI review
         if: steps.command.outputs.run == 'true' && steps.patch.outputs.has_diff == 'true'
