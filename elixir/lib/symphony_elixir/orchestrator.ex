@@ -181,26 +181,20 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   def handle_info(
+        {:agent_worker_update, issue_id, %{event: _, timestamp: _} = update},
+        %{running: running} = state
+      ) do
+    handle_runtime_update(issue_id, update, running, state)
+  end
+
+  def handle_info(
         {:codex_worker_update, issue_id, %{event: _, timestamp: _} = update},
         %{running: running} = state
       ) do
-    case Map.get(running, issue_id) do
-      nil ->
-        {:noreply, state}
-
-      running_entry ->
-        {updated_running_entry, token_delta} = integrate_codex_update(running_entry, update)
-
-        state =
-          state
-          |> apply_codex_token_delta(token_delta)
-          |> apply_codex_rate_limits(update)
-
-        notify_dashboard()
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
-    end
+    handle_runtime_update(issue_id, update, running, state)
   end
 
+  def handle_info({:agent_worker_update, _issue_id, _update}, state), do: {:noreply, state}
   def handle_info({:codex_worker_update, _issue_id, _update}, state), do: {:noreply, state}
 
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
@@ -479,8 +473,8 @@ defmodule SymphonyElixir.Orchestrator do
       |> terminate_running_issue(issue_id, false)
       |> schedule_issue_retry(issue_id, next_attempt, %{
         identifier: identifier,
-        error: "stalled for #{elapsed_ms}ms without codex activity"
-      })
+          error: "stalled for #{elapsed_ms}ms without agent activity"
+        })
     else
       state
     end
@@ -1241,6 +1235,24 @@ defmodule SymphonyElixir.Orchestrator do
       message: update[:payload] || update[:raw],
       timestamp: update[:timestamp]
     }
+  end
+
+  defp handle_runtime_update(issue_id, update, running, %{running: _} = state) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        {updated_running_entry, token_delta} = integrate_codex_update(running_entry, update)
+
+        state =
+          state
+          |> apply_codex_token_delta(token_delta)
+          |> apply_codex_rate_limits(update)
+
+        notify_dashboard()
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+    end
   end
 
   defp schedule_tick(%State{} = state, delay_ms) when is_integer(delay_ms) and delay_ms >= 0 do

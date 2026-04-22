@@ -402,6 +402,9 @@ defmodule SymphonyElixir.LiveE2ETest do
       when is_binary(workspace_path) ->
         runtime_info
 
+      {:agent_worker_update, ^issue_id, _message} ->
+        receive_runtime_info!(issue_id)
+
       {:codex_worker_update, ^issue_id, _message} ->
         receive_runtime_info!(issue_id)
     after
