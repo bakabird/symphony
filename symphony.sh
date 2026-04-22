@@ -2,14 +2,15 @@
 set -euo pipefail
 
 PROJECT_ROOT="/Users/yang/AgentPiper/MissionCenter"
+LOCAL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "$#" -gt 0 ]; then
   case "$1" in
     /*) WORKFLOW_FILE="$1" ;;
-    *) WORKFLOW_FILE="$PROJECT_ROOT/$1" ;;
+    *) WORKFLOW_FILE="$LOCAL_ROOT/$1" ;;
   esac
 else
-  WORKFLOW_FILE="$PROJECT_ROOT/elixir/WORKFLOW.md"
+  WORKFLOW_FILE="$LOCAL_ROOT/WORKFLOW.md"
 fi
 
 cd "$PROJECT_ROOT/elixir"

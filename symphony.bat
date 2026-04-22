@@ -2,14 +2,15 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "PROJECT_ROOT=/Users/yang/AgentPiper/MissionCenter"
+set "LOCAL_ROOT=%~dp0"
 
 if "%~1"=="" (
-  set "WORKFLOW=%PROJECT_ROOT%\elixir\WORKFLOW.md"
+  set "WORKFLOW=%LOCAL_ROOT%WORKFLOW.md"
 ) else (
   if "%~1"=="%~f1" (
     set "WORKFLOW=%~1"
   ) else (
-    set "WORKFLOW=%PROJECT_ROOT%\%~1"
+    set "WORKFLOW=%LOCAL_ROOT%%~1"
   )
 )
 
