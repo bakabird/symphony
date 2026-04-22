@@ -86,60 +86,74 @@ defmodule SymphonyElixir.AgentRunner do
 
     with {:ok, session} <- backend_module.start_session(backend_context, backend_opts) do
       try do
-        do_run_backend_turns(
-          backend_module,
-          session,
-          workspace,
-          issue,
-          codex_update_recipient,
-          opts,
-          issue_state_fetcher,
-          1,
-          max_turns,
-          backend_opts
-        )
+        run_context = %{
+          backend_module: backend_module,
+          backend_opts: backend_opts,
+          issue: issue,
+          issue_state_fetcher: issue_state_fetcher,
+          opts: opts,
+          session: session,
+          workspace: workspace,
+          max_turns: max_turns
+        }
+
+        do_run_backend_turns(run_context, 1)
       after
         backend_module.stop_session(session)
       end
     end
   end
 
-  defp do_run_backend_turns(
-         backend_module,
-         session,
-         workspace,
-         issue,
-         codex_update_recipient,
-         opts,
-         issue_state_fetcher,
-         turn_number,
-         max_turns,
-         backend_opts
-       ) do
+  defp do_run_backend_turns(context, turn_number) do
+    %{
+      backend_module: backend_module,
+      backend_opts: backend_opts,
+      issue: issue,
+      issue_state_fetcher: issue_state_fetcher,
+      opts: opts,
+      session: session,
+      workspace: workspace,
+      max_turns: max_turns
+    } = context
+
     turn = build_turn(issue, opts, turn_number, max_turns)
 
     with {:ok, turn_session} <- backend_module.run_turn(session, turn, backend_opts) do
-      Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
+      completion_message =
+        [
+          "Completed agent run for #{issue_context(issue)}",
+          "session_id=#{turn_session[:session_id]}",
+          "workspace=#{workspace}",
+          "turn=#{turn_number}/#{max_turns}"
+        ]
+        |> Enum.join(" ")
+
+      Logger.info(completion_message)
 
       case continue_with_issue?(issue, issue_state_fetcher) do
         {:continue, refreshed_issue} when turn_number < max_turns ->
-          Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
+          continuation_message =
+            [
+              "Continuing agent run for #{issue_context(refreshed_issue)}",
+              "after normal turn completion",
+              "turn=#{turn_number}/#{max_turns}"
+            ]
+            |> Enum.join(" ")
 
-          do_run_backend_turns(
-            backend_module,
-            session,
-            workspace,
-            refreshed_issue,
-            codex_update_recipient,
-            opts,
-            issue_state_fetcher,
-            turn_number + 1,
-            max_turns,
-            backend_opts
-          )
+          Logger.info(continuation_message)
+
+          do_run_backend_turns(%{context | issue: refreshed_issue}, turn_number + 1)
 
         {:continue, refreshed_issue} ->
-          Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
+          max_turns_message =
+            [
+              "Reached agent.max_turns for #{issue_context(refreshed_issue)}",
+              "with issue still active",
+              "returning control to orchestrator"
+            ]
+            |> Enum.join(" ")
+
+          Logger.info(max_turns_message)
 
           :ok
 

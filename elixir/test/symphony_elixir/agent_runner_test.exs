@@ -73,6 +73,7 @@ defmodule SymphonyElixir.AgentRunnerTest do
       workspace_root = Path.join(test_root, "workspaces")
       issue_id = "issue-backend-override"
       issue_identifier = "MT-424"
+
       issue = %Issue{
         id: issue_id,
         identifier: issue_identifier,
@@ -118,12 +119,13 @@ defmodule SymphonyElixir.AgentRunnerTest do
       assert Keyword.get(start_opts, :observer) == observer
       assert String.ends_with?(context.workspace_path, "/workspaces/#{issue_identifier}")
       assert context.worker_host == nil
+
       assert context.work_item == %{
-                 id: issue_id,
-                 identifier: issue_identifier,
-                 title: issue.title,
-                 description: issue.description
-               }
+               id: issue_id,
+               identifier: issue_identifier,
+               title: issue.title,
+               description: issue.description
+             }
 
       assert_receive {:fake_backend_run_turn, 1, turn_1, run_opts_1}
       assert Keyword.get(run_opts_1, :observer) == observer
@@ -178,6 +180,7 @@ defmodule SymphonyElixir.AgentRunnerTest do
       workspace_root = Path.join(test_root, "workspaces")
       issue_id = "issue-backend-failure"
       issue_identifier = "MT-425"
+
       issue = %Issue{
         id: issue_id,
         identifier: issue_identifier,

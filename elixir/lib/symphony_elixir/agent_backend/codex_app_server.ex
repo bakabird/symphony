@@ -44,6 +44,8 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServer do
       when is_map(turn) do
     prompt = turn_value(turn, :prompt)
     tool_executor = Keyword.get(opts, :tool_executor)
+    work_item = normalize_work_item(work_item || turn_value(turn, :work_item) || %{})
+
     on_message = fn message ->
       on_event.(AgentBackend.normalize_runtime_event(@backend_name, message))
     end
@@ -53,7 +55,7 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServer do
       |> maybe_put_opt(:on_message, on_message)
       |> maybe_put_opt(:tool_executor, tool_executor)
 
-    case AppServer.run_turn(app_session, prompt, work_item || turn_value(turn, :work_item) || %{}, run_opts) do
+    case AppServer.run_turn(app_session, prompt, work_item, run_opts) do
       {:ok, result} ->
         {:ok, Map.put(result, :backend, @backend_name)}
 
@@ -80,6 +82,19 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServer do
 
   defp turn_value(turn, key) when is_map(turn) do
     Map.get(turn, key) || Map.get(turn, Atom.to_string(key))
+  end
+
+  defp normalize_work_item(work_item) when is_map(work_item) do
+    %{
+      id: value_from(work_item, :id),
+      identifier: value_from(work_item, :identifier),
+      title: value_from(work_item, :title),
+      description: value_from(work_item, :description)
+    }
+  end
+
+  defp value_from(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
   defp default_on_event do

@@ -473,8 +473,8 @@ defmodule SymphonyElixir.Orchestrator do
       |> terminate_running_issue(issue_id, false)
       |> schedule_issue_retry(issue_id, next_attempt, %{
         identifier: identifier,
-          error: "stalled for #{elapsed_ms}ms without agent activity"
-        })
+        error: "stalled for #{elapsed_ms}ms without agent activity"
+      })
     else
       state
     end

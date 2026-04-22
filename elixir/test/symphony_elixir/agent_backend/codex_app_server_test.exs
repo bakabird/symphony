@@ -67,7 +67,7 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServerTest do
         end
       }
 
-      assert {:ok, session} = CodexAppServer.start_session(context, [])
+      assert {:ok, session} = CodexAppServer.start_session(context)
       assert session.backend == :codex_app_server
       assert String.ends_with?(session.workspace_path, "/workspaces/MT-451")
 
@@ -102,6 +102,107 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServerTest do
     end
   end
 
+  test "codex app-server backend supports string-key context and fallback paths" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-backend-codex-string-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-452")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+      File.write!(codex_binary, fake_codex_script())
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      context = %{
+        "workspace_path" => workspace,
+        "work_item" => %{
+          "id" => "issue-452",
+          "identifier" => "MT-452",
+          "title" => "Backend compatibility",
+          "description" => "Exercise string-key context"
+        }
+      }
+
+      assert {:ok, session} = CodexAppServer.start_session(context, [])
+      assert session.backend == :codex_app_server
+      assert String.ends_with?(session.workspace_path, "/workspaces/MT-452")
+
+      turn = %{
+        "prompt" => "Do the thing",
+        "work_item" => context["work_item"]
+      }
+
+      assert {:ok, result} =
+               CodexAppServer.run_turn(session, turn, tool_executor: fn _tool, _arguments -> %{success: true} end)
+
+      assert result.backend == :codex_app_server
+      assert result.session_id == "thread-451-turn-451"
+      assert result.thread_id == "thread-451"
+      assert result.turn_id == "turn-451"
+
+      assert :ok = CodexAppServer.stop_session(session)
+      assert :ok = CodexAppServer.stop_session(%{})
+      assert {:error, :missing_workspace_path} = CodexAppServer.start_session(%{}, [])
+      assert {:error, :invalid_session} = CodexAppServer.run_turn(%{}, %{}, [])
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex app-server backend surfaces turn failures" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-backend-codex-failure-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-453")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+      File.write!(codex_binary, fake_failed_codex_script())
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      context = %{
+        "workspace_path" => workspace,
+        "work_item" => %{
+          "identifier" => "MT-453",
+          "title" => "Backend compatibility failure",
+          "description" => "Exercise the error path"
+        }
+      }
+
+      assert {:ok, session} = CodexAppServer.start_session(context)
+
+      turn = %{
+        "prompt" => "Do the thing",
+        "work_item" => context["work_item"]
+      }
+
+      assert {:error, {:turn_failed, %{"reason" => "boom"}}} =
+               CodexAppServer.run_turn(session, turn, tool_executor: fn _tool, _arguments -> %{success: true} end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   defp fake_codex_script do
     """
     #!/bin/sh
@@ -122,6 +223,36 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServerTest do
           ;;
         4)
           printf '%s\n' '{"method":"turn/completed"}'
+          exit 0
+          ;;
+        *)
+          exit 0
+          ;;
+      esac
+    done
+    """
+  end
+
+  defp fake_failed_codex_script do
+    """
+    #!/bin/sh
+    count=0
+
+    while IFS= read -r line; do
+      count=$((count + 1))
+
+      case "$count" in
+        1)
+          printf '%s\n' '{"id":1,"result":{}}'
+          ;;
+        2)
+          printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-451"}}}'
+          ;;
+        3)
+          printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-451"}}}'
+          ;;
+        4)
+          printf '%s\n' '{"method":"turn/failed","params":{"reason":"boom"}}'
           exit 0
           ;;
         *)
