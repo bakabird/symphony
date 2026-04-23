@@ -1,4 +1,4 @@
-name: AI PR Review
+name: Mini Bot AI PR Review Command
 
 on:
   issue_comment:
@@ -16,180 +16,18 @@ env:
 
 jobs:
   review:
-    if: >-
-      ${{
-        github.event.issue.pull_request &&
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-      }}
+    if: ${{ github.event.issue.pull_request }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Parse review command
-        id: command
-        shell: bash
-        env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          REVIEWER_BOT_NAME: ${{ env.REVIEWER_BOT_NAME }}
-        run: |
-          set -euo pipefail
-
-          body="$(printf '%s' "$COMMENT_BODY" | tr -d '\r')"
-          bot_re="$(printf '%s' "$REVIEWER_BOT_NAME" | sed 's/[][(){}.^$*+?|\\/]/\\&/g')"
-
-          if [[ "$body" =~ ^@${bot_re}[[:space:]]+full[[:space:]]*$ ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "mode=full" >> "$GITHUB_OUTPUT"
-            echo "count=" >> "$GITHUB_OUTPUT"
-          elif [[ "$body" =~ ^@${bot_re}[[:space:]]+last([[:space:]]+([0-9]+))?[[:space:]]*$ ]]; then
-            count="${BASH_REMATCH[2]:-1}"
-
-            if (( count < 1 )); then
-              echo "Invalid command: last count must be >= 1" >&2
-              exit 1
-            fi
-
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "mode=last" >> "$GITHUB_OUTPUT"
-            echo "count=$count" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Stop when comment is not a review command
-        if: steps.command.outputs.run != 'true'
-        run: |
-          echo "Comment is not a reviewer command. Skipping."
-
-      - name: Load PR metadata
-        if: steps.command.outputs.run == 'true'
-        id: pr
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-        run: |
-          set -euo pipefail
-
-          pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
-
-          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "head_sha=$(jq -r '.head.sha' <<< "$pr_json")" >> "$GITHUB_OUTPUT"
-          echo "head_repo=$(jq -r '.head.repo.full_name' <<< "$pr_json")" >> "$GITHUB_OUTPUT"
-          echo "base_sha=$(jq -r '.base.sha' <<< "$pr_json")" >> "$GITHUB_OUTPUT"
-          echo "base_clone_url=$(jq -r '.base.repo.clone_url' <<< "$pr_json")" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout PR head
-        if: steps.command.outputs.run == 'true'
-        uses: actions/checkout@v4
+      - uses: bakabird/prReviewer@main
         with:
-          repository: ${{ steps.pr.outputs.head_repo }}
-          ref: ${{ steps.pr.outputs.head_sha }}
-          fetch-depth: 0
-
-      - name: Build review patch
-        if: steps.command.outputs.run == 'true'
-        id: patch
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          MODE: ${{ steps.command.outputs.mode }}
-          COUNT: ${{ steps.command.outputs.count }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
-          BASE_CLONE_URL: ${{ steps.pr.outputs.base_clone_url }}
-        run: |
-          set -euo pipefail
-
-          git remote add base "$BASE_CLONE_URL" 2>/dev/null || git remote set-url base "$BASE_CLONE_URL"
-          git fetch --no-tags --depth=1 base "$BASE_SHA"
-
-          if [[ "$MODE" == "full" ]]; then
-            START_SHA="$BASE_SHA"
-            END_SHA="$HEAD_SHA"
-          else
-            mapfile -t commits < <(
-              gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].sha'
-            )
-
-            total="${#commits[@]}"
-            if (( total == 0 )); then
-              echo "No commits found in PR." >&2
-              exit 1
-            fi
-
-            if (( COUNT > total )); then
-              COUNT="$total"
-            fi
-
-            start_index=$(( total - COUNT ))
-            start_commit="${commits[$start_index]}"
-            END_SHA="$HEAD_SHA"
-            START_SHA="$(git rev-parse "${start_commit}^")"
-          fi
-
-          patch_file="$RUNNER_TEMP/pr-review.patch"
-
-          git diff --no-ext-diff --unified=3 "$START_SHA" "$END_SHA" -- \
-            . \
-            ':(exclude)*.lock' \
-            ':(exclude)dist/**' \
-            ':(exclude)node_modules/**' \
-            > "$patch_file"
-
-          if [[ ! -s "$patch_file" ]]; then
-            echo "No diff to review for selected range."
-            echo "has_diff=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "has_diff=true" >> "$GITHUB_OUTPUT"
-          echo "file=$patch_file" >> "$GITHUB_OUTPUT"
-
-      - name: Install pr-reviewer
-        if: steps.command.outputs.run == 'true' && steps.patch.outputs.has_diff == 'true'
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "git+https://github.com/NoahLundSyrdal/prReviewer.git@v1.1"
-
-      - name: Test LLM endpoint
-        if: steps.command.outputs.run == 'true'
-        env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          REVIEWER_MODEL: ${{ env.REVIEWER_MODEL }}
-          REVIEWER_BASE_URL: ${{ env.REVIEWER_BASE_URL }}
-        run: |
-          set -euo pipefail
-
-          curl -sS -i "$REVIEWER_BASE_URL/chat/completions" \
-            -H "Authorization: Bearer $LLM_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"model\": \"$REVIEWER_MODEL\",
-              \"messages\": [
-                {\"role\": \"user\", \"content\": \"Return only: ok\"}
-              ],
-              \"temperature\": 0,
-              \"stream\": false
-            }"
-
-      - name: Run AI review
-        if: steps.command.outputs.run == 'true' && steps.patch.outputs.has_diff == 'true'
-        working-directory: ${{ runner.temp }}
-        env:
-          PR_REVIEWER_API_KEY: ${{ secrets.LLM_API_KEY }}
-          PR_REVIEWER_BASE_URL: ${{ env.REVIEWER_BASE_URL }}
-          GITHUB_TOKEN: ${{ github.token }}
-          REVIEWER_MODEL: ${{ env.REVIEWER_MODEL }}
-          REVIEWER_BASE_URL: ${{ env.REVIEWER_BASE_URL }}
-        run: |
-          pr-reviewer review "${{ steps.patch.outputs.file }}" \
-            --model "$REVIEWER_MODEL" \
-            --base-url "$REVIEWER_BASE_URL" \
-            --mode "multi" \
-            --max-lines 1200 \
-            --format markdown \
-            --post github \
-            --repo "$GITHUB_REPOSITORY" \
-            --pr "${{ steps.pr.outputs.number }}" \
-            --integration-token "$GITHUB_TOKEN"
+          api_key: ${{ secrets.LLM_API_KEY }}
+          github_token: ${{ github.token }}
+          trigger: comment
+          reviewer_bot_name: ${{ env.REVIEWER_BOT_NAME }}
+          model: ${{ env.REVIEWER_MODEL }}
+          base_url: ${{ env.REVIEWER_BASE_URL }}
+          mode: multi
+          max_lines: '1200'
+          exclude: '*.lock,dist/**,node_modules/**'
