@@ -37,6 +37,12 @@ defmodule SymphonyElixir.AgentBackendTest do
     assert AgentBackend.normalize_backend_name({:tuple, :backend}) ==
              {:tuple, :backend}
 
+    backend_suffix = System.unique_integer([:positive])
+    backend_module = Module.concat([__MODULE__, "MissingBackend#{backend_suffix}"])
+
+    assert AgentBackend.normalize_backend_name(backend_module) ==
+             "missing_backend#{backend_suffix}"
+
     assert AgentBackend.normalize_work_item(%{
              "id" => "issue-1",
              :identifier => "MT-1",

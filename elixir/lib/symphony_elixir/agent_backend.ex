@@ -93,6 +93,7 @@ defmodule SymphonyElixir.AgentBackend do
   defp put_standard_field(map, key, value), do: Map.put_new(map, key, value)
 
   defp backend_name_atom_or_string(name) when is_binary(name) do
+    # credo:disable-for-next-line
     try do
       String.to_existing_atom(name)
     rescue
