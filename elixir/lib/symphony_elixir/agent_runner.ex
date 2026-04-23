@@ -79,7 +79,7 @@ defmodule SymphonyElixir.AgentRunner do
   defp run_backend_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
-    backend_module = Resolver.resolve(opts)
+    backend_module = Resolver.resolve(opts) |> ensure_backend_module!()
     backend_opts = Keyword.get(opts, :backend_opts, []) |> List.wrap()
     on_event = agent_message_handler(codex_update_recipient, issue)
     backend_context = build_backend_context(issue, workspace, worker_host, on_event)
@@ -102,6 +102,26 @@ defmodule SymphonyElixir.AgentRunner do
         backend_module.stop_session(session)
       end
     end
+  end
+
+  defp ensure_backend_module!(backend_module) when is_atom(backend_module) do
+    if backend_module_valid?(backend_module) do
+      backend_module
+    else
+      raise ArgumentError,
+            "Resolved backend #{inspect(backend_module)} does not implement AgentBackend callbacks"
+    end
+  end
+
+  defp ensure_backend_module!(backend_module) do
+    raise ArgumentError,
+          "Resolved backend #{inspect(backend_module)} does not implement AgentBackend callbacks"
+  end
+
+  defp backend_module_valid?(backend_module) do
+    function_exported?(backend_module, :start_session, 2) and
+      function_exported?(backend_module, :run_turn, 3) and
+      function_exported?(backend_module, :stop_session, 1)
   end
 
   defp do_run_backend_turns(context, turn_number) do

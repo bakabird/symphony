@@ -224,4 +224,38 @@ defmodule SymphonyElixir.AgentRunnerTest do
       File.rm_rf(test_root)
     end
   end
+
+  test "agent runner rejects backends that do not implement the AgentBackend callbacks" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-invalid-backend-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      issue_id = "issue-invalid-backend"
+      issue_identifier = "MT-426"
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        title: "Invalid backend",
+        description: "Exercise backend validation",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-426",
+        labels: []
+      }
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root
+      )
+
+      assert_raise ArgumentError, ~r/does not implement AgentBackend callbacks/, fn ->
+        AgentRunner.run(issue, self(), backend: :fake_backend)
+      end
+    after
+      File.rm_rf(test_root)
+    end
+  end
 end

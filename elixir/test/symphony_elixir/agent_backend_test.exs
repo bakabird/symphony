@@ -36,6 +36,20 @@ defmodule SymphonyElixir.AgentBackendTest do
 
     assert AgentBackend.normalize_backend_name({:tuple, :backend}) ==
              {:tuple, :backend}
+
+    assert AgentBackend.normalize_work_item(%{
+             "id" => "issue-1",
+             :identifier => "MT-1",
+             "title" => "Backend task",
+             "description" => "Fill in shared fields"
+           }) == %{
+             id: "issue-1",
+             identifier: "MT-1",
+             title: "Backend task",
+             description: "Fill in shared fields"
+           }
+
+    assert AgentBackend.value_from(%{"worker_pid" => "4242"}, :worker_pid) == "4242"
   end
 
   test "normalize_runtime_event fills defaults for sparse payloads" do

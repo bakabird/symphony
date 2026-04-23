@@ -58,7 +58,7 @@ defmodule SymphonyElixir.AgentBackend do
         |> Module.split()
         |> List.last()
         |> Macro.underscore()
-        |> String.to_atom()
+        |> backend_name_atom_or_string()
 
       _ ->
         backend
@@ -69,13 +69,34 @@ defmodule SymphonyElixir.AgentBackend do
 
   def normalize_backend_name(backend), do: backend
 
+  @doc false
+  @spec normalize_work_item(map()) :: map()
+  def normalize_work_item(work_item) when is_map(work_item) do
+    %{
+      id: value_from(work_item, :id),
+      identifier: value_from(work_item, :identifier),
+      title: value_from(work_item, :title),
+      description: value_from(work_item, :description)
+    }
+  end
+
+  @doc false
+  @spec value_from(map(), atom()) :: term()
+  def value_from(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
   defp put_standard_field(map, key), do: put_standard_field(map, key, value_from(map, key))
 
   defp put_standard_field(map, _key, nil), do: map
 
   defp put_standard_field(map, key, value), do: Map.put_new(map, key, value)
 
-  defp value_from(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp backend_name_atom_or_string(name) when is_binary(name) do
+    try do
+      String.to_existing_atom(name)
+    rescue
+      ArgumentError -> name
+    end
   end
 end

@@ -13,10 +13,10 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServer do
   @spec start_session(AgentBackend.context(), keyword()) ::
           {:ok, AgentBackend.session()} | {:error, term()}
   def start_session(context, opts \\ []) when is_map(context) do
-    workspace_path = context_value(context, :workspace_path)
-    worker_host = context_value(context, :worker_host) || Keyword.get(opts, :worker_host)
-    on_event = context_value(context, :on_event) || Keyword.get(opts, :on_event) || default_on_event()
-    work_item = context_value(context, :work_item) || %{}
+    workspace_path = AgentBackend.value_from(context, :workspace_path)
+    worker_host = AgentBackend.value_from(context, :worker_host) || Keyword.get(opts, :worker_host)
+    on_event = AgentBackend.value_from(context, :on_event) || Keyword.get(opts, :on_event) || default_on_event()
+    work_item = AgentBackend.value_from(context, :work_item) || %{}
 
     case workspace_path do
       path when is_binary(path) and path != "" ->
@@ -42,9 +42,9 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServer do
           {:ok, AgentBackend.turn_result()} | {:error, term()}
   def run_turn(%{app_session: app_session, on_event: on_event, work_item: work_item}, turn, opts)
       when is_map(turn) do
-    prompt = turn_value(turn, :prompt)
+    prompt = AgentBackend.value_from(turn, :prompt)
     tool_executor = Keyword.get(opts, :tool_executor)
-    work_item = normalize_work_item(work_item || turn_value(turn, :work_item) || %{})
+    work_item = AgentBackend.normalize_work_item(work_item || AgentBackend.value_from(turn, :work_item) || %{})
 
     on_message = fn message ->
       on_event.(AgentBackend.normalize_runtime_event(@backend_name, message))
@@ -75,27 +75,6 @@ defmodule SymphonyElixir.AgentBackend.CodexAppServer do
 
   defp maybe_put_opt(opts, _key, nil), do: opts
   defp maybe_put_opt(opts, key, value), do: Keyword.put(opts, key, value)
-
-  defp context_value(context, key) when is_map(context) do
-    Map.get(context, key) || Map.get(context, Atom.to_string(key))
-  end
-
-  defp turn_value(turn, key) when is_map(turn) do
-    Map.get(turn, key) || Map.get(turn, Atom.to_string(key))
-  end
-
-  defp normalize_work_item(work_item) when is_map(work_item) do
-    %{
-      id: value_from(work_item, :id),
-      identifier: value_from(work_item, :identifier),
-      title: value_from(work_item, :title),
-      description: value_from(work_item, :description)
-    }
-  end
-
-  defp value_from(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
 
   defp default_on_event do
     fn _message -> :ok end

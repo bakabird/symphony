@@ -182,16 +182,16 @@ defmodule SymphonyElixir.Orchestrator do
 
   def handle_info(
         {:agent_worker_update, issue_id, %{event: _, timestamp: _} = update},
-        %{running: running} = state
+        %{running: _running} = state
       ) do
-    handle_runtime_update(issue_id, update, running, state)
+    handle_runtime_update(issue_id, update, state)
   end
 
   def handle_info(
         {:codex_worker_update, issue_id, %{event: _, timestamp: _} = update},
-        %{running: running} = state
+        %{running: _running} = state
       ) do
-    handle_runtime_update(issue_id, update, running, state)
+    handle_runtime_update(issue_id, update, state)
   end
 
   def handle_info({:agent_worker_update, _issue_id, _update}, state), do: {:noreply, state}
@@ -1237,7 +1237,7 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
-  defp handle_runtime_update(issue_id, update, running, %{running: _} = state) do
+  defp handle_runtime_update(issue_id, update, %{running: running} = state) do
     case Map.get(running, issue_id) do
       nil ->
         {:noreply, state}
