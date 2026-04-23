@@ -104,18 +104,14 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp ensure_backend_module!(backend_module) when is_atom(backend_module) do
-    if backend_module_valid?(backend_module) do
+  @dialyzer {:nowarn_function, ensure_backend_module!: 1}
+  defp ensure_backend_module!(backend_module) do
+    if is_atom(backend_module) and backend_module_valid?(backend_module) do
       backend_module
     else
       raise ArgumentError,
             "Resolved backend #{inspect(backend_module)} does not implement AgentBackend callbacks"
     end
-  end
-
-  defp ensure_backend_module!(backend_module) do
-    raise ArgumentError,
-          "Resolved backend #{inspect(backend_module)} does not implement AgentBackend callbacks"
   end
 
   defp backend_module_valid?(backend_module) do
