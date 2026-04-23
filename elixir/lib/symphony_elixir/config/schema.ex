@@ -673,15 +673,10 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp validate_validation_rule(path, %ValidationRule{} = rule, level_names, evidence_names, labels_required) do
-    cond do
-      labels_required and rule.labels == [] ->
-        {:error, "#{path}.labels must include at least one Linear label"}
-
-      rule.levels in [nil, []] ->
-        {:error, "#{path}.levels must include at least one validation level"}
-
-      true ->
-        validate_validation_rule_levels(path, rule.levels, level_names, evidence_names)
+    if labels_required and rule.labels == [] do
+      {:error, "#{path}.labels must include at least one Linear label"}
+    else
+      validate_validation_rule_levels(path, rule.levels, level_names, evidence_names)
     end
   end
 

@@ -2,7 +2,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   use SymphonyElixir.TestSupport
   alias Ecto.Changeset
   alias SymphonyElixir.Config.Schema
-  alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
+  alias SymphonyElixir.Config.Schema.{Codex, StringOrMap, ValidationRule}
   alias SymphonyElixir.Linear.Client
 
   test "workspace bootstrap can be implemented in after_create hook" do
@@ -982,7 +982,15 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert {:ok, %{"a" => 1}} = StringOrMap.dump(%{"a" => 1})
     assert :error = StringOrMap.dump(123)
 
+    assert %Changeset{valid?: true, changes: %{labels: nil}} =
+             ValidationRule.changeset(%ValidationRule{}, %{
+               id: "bug",
+               labels: nil,
+               levels: [%{name: "compile", evidence_type: "none"}]
+             })
+
     assert Schema.normalize_state_limits(nil) == %{}
+    assert Schema.normalize_validation_name(:not_a_string) == :not_a_string
 
     assert Schema.normalize_state_limits(%{"In Progress" => 2, todo: 1}) == %{
              "todo" => 1,
