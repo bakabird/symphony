@@ -1,0 +1,9 @@
+Set up Symphony for my repository based on /Users/yang/AgentPiper/MissionCenterWIP/elixir/README.md.
+- 应用 /Users/yang/AgentPiper/MissionCenterWIP/elixir/WORKFLOW.md 这个模版。
+    - 在本地的 LinearLabel.md 中，依照 WORKFLOW.md，用简洁的语言介绍和 验证任务 相关的 label
+- 在项目目录下，编写本项目专用的 StartMissionCenter.sh，方便后续使用。
+    - 采用 `--i-understand-that-this-will-be-running-without-the-usual-guardrails`
+
+Ask me for the information you need, then produce a ready-to-use WORKFLOW.md draft.
+Do not write application code.
+Reply in Chinese.
