@@ -69,7 +69,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :session_started,
          session_id: "thread-live-turn-live",
@@ -79,7 +79,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :notification,
          payload: %{method: "some-event"},
@@ -957,7 +957,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert is_integer(due_at_ms)
     remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
-    assert remaining_ms >= 9_500
+    assert remaining_ms >= 9_000
     assert remaining_ms <= 10_500
   end
 

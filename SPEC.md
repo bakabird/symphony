@@ -961,6 +961,10 @@ Invariant 3: Workspace key is sanitized.
 ## 10. Agent Runner Protocol (Coding Agent Integration)
 
 This section defines the language-neutral contract for integrating a coding agent app-server.
+Symphony executes agent runs through an `AgentBackend` runtime contract: AgentRunner resolves a
+backend per run, builds the logical turn payload, and forwards normalized runtime events to the
+orchestrator. The default compatibility backend is `codex_app_server`, which preserves the Codex
+app-server protocol details described below.
 
 Compatibility profile:
 
@@ -1073,9 +1077,11 @@ Line handling requirements:
 The app-server client emits structured events to the orchestrator callback. Each event should
 include:
 
+- `backend` (agent backend identity)
 - `event` (enum/string)
 - `timestamp` (UTC timestamp)
 - `codex_app_server_pid` (if available)
+- optional `worker_pid`
 - optional `usage` map (token counts)
 - payload fields as needed
 
@@ -1197,15 +1203,16 @@ Error mapping (recommended normalized categories):
 
 ### 10.7 Agent Runner Contract
 
-The `Agent Runner` wraps workspace + prompt + app-server client.
+The `Agent Runner` wraps workspace + prompt + resolved agent backend.
 
 Behavior:
 
-1. Create/reuse workspace for issue.
-2. Build prompt from workflow template.
-3. Start app-server session.
-4. Forward app-server events to orchestrator.
-5. On any error, fail the worker attempt (the orchestrator will retry).
+1. Resolve the backend for the run.
+2. Create/reuse workspace for issue.
+3. Build prompt from workflow template.
+4. Start backend session.
+5. Forward backend events to orchestrator.
+6. On any error, fail the worker attempt (the orchestrator will retry).
 
 Note:
 

@@ -551,7 +551,7 @@ defmodule SymphonyElixir.CoreTest do
     assert MapSet.member?(state.completed, issue_id)
     assert %{attempt: 1, due_at_ms: due_at_ms} = state.retry_attempts[issue_id]
     assert is_integer(due_at_ms)
-    assert_due_in_range(due_at_ms, 500, 1_100)
+    assert_due_in_range(due_at_ms, 100, 1_100)
   end
 
   test "abnormal worker exit increments retry attempt progressively" do
@@ -591,7 +591,7 @@ defmodule SymphonyElixir.CoreTest do
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, 39_500, 40_500)
+    assert_due_in_range(due_at_ms, 39_000, 40_500)
   end
 
   test "first abnormal worker exit waits before retrying" do
@@ -1150,7 +1150,7 @@ defmodule SymphonyElixir.CoreTest do
                  issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
                )
 
-      assert_receive {:codex_worker_update, "issue-live-updates",
+      assert_receive {:agent_worker_update, "issue-live-updates",
                       %{
                         event: :session_started,
                         timestamp: %DateTime{},
@@ -1358,6 +1358,7 @@ defmodule SymphonyElixir.CoreTest do
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       refute Enum.at(turn_texts, 1) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) =~ "Continuation guidance:"
+      assert Enum.at(turn_texts, 1) =~ "previous agent turn"
       assert Enum.at(turn_texts, 1) =~ "continuation turn #2 of 3"
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")

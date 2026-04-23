@@ -79,7 +79,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         },
         prompt,
         issue,
-        opts \\ []
+        opts
       ) do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
 
@@ -138,6 +138,8 @@ defmodule SymphonyElixir.Codex.AppServer do
         {:error, reason}
     end
   end
+
+  def run_turn(_session, _prompt, _issue, _opts), do: {:error, :invalid_session}
 
   @spec stop_session(session()) :: :ok
   def stop_session(%{port: port}) when is_port(port) do
