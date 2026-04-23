@@ -66,6 +66,51 @@ defmodule SymphonyElixir.ValidationGuidanceTest do
     assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{validation: unknown_evidence})
     assert message =~ "validation.rules[0].levels[0].evidence_type"
     assert message =~ "unknown evidence type"
+
+    unknown_level =
+      validation_config()
+      |> put_in([:rules, Access.at!(0), :levels, Access.at!(0), :name], "acceptance")
+
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{validation: unknown_level})
+    assert message =~ "validation.rules[0].levels[0].name"
+    assert message =~ "unknown validation level"
+  end
+
+  test "schema parse rejects incomplete validation configuration with clear errors" do
+    empty_levels =
+      validation_config()
+      |> put_in([:levels], [])
+
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{validation: empty_levels})
+    assert message =~ "validation.levels must include at least one entry"
+
+    missing_default =
+      validation_config()
+      |> Map.delete(:default_rule)
+
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{validation: missing_default})
+    assert message =~ "validation.default_rule can't be blank"
+
+    duplicate_level =
+      validation_config()
+      |> put_in([:levels, Access.at!(1), :name], "compile")
+
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{validation: duplicate_level})
+    assert message =~ "validation.levels contains duplicate name \"compile\""
+
+    unlabeled_rule =
+      validation_config()
+      |> put_in([:rules, Access.at!(0), :labels], [])
+
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{validation: unlabeled_rule})
+    assert message =~ "validation.rules[0].labels must include at least one Linear label"
+
+    empty_default_rule_levels =
+      validation_config()
+      |> put_in([:default_rule, :levels], [])
+
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{validation: empty_default_rule_levels})
+    assert message =~ "validation.default_rule.levels can't be blank"
   end
 
   test "guidance resolution matches labels case-insensitively and expands level metadata" do
