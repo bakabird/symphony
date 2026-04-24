@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   @turn_start_id 3
   @port_line_bytes 1_048_576
   @max_stream_log_bytes 1_000
+  @max_notification_log_chars 400
   @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
 
   @type session :: %{
@@ -519,11 +520,172 @@ defmodule SymphonyElixir.Codex.AppServer do
             metadata
           )
 
-          Logger.debug("Codex notification: #{inspect(method)}")
+          Logger.debug(notification_log_message(method, payload, payload_string, metadata))
           receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
         end
     end
   end
+
+  defp notification_log_message(method, payload, payload_string, metadata)
+       when is_binary(method) and is_map(payload) and is_binary(payload_string) and is_map(metadata) do
+    case method do
+      "error" ->
+        details = error_notification_details(payload, payload_string, metadata)
+        "Codex notification: #{inspect(method)} details=#{inspect(details)}"
+
+      _ ->
+        "Codex notification: #{inspect(method)}"
+    end
+  end
+
+  defp notification_log_message(method, _payload, _payload_string, _metadata) when is_binary(method) do
+    "Codex notification: #{inspect(method)}"
+  end
+
+  defp error_notification_details(payload, payload_string, metadata) when is_map(payload) and is_map(metadata) do
+    params = notification_params(payload)
+    thread_id = notification_field(payload, params, "threadId")
+    turn_id = notification_field(payload, params, "turnId")
+    session_id = notification_session_id(thread_id, turn_id)
+
+    %{
+      session_id: session_id,
+      thread_id: thread_id,
+      turn_id: turn_id,
+      item_id: notification_item_id(params),
+      code: notification_code(payload, params),
+      type: notification_type(payload, params),
+      message: notification_message(payload, params, payload_string),
+      params_keys: notification_params_keys(params),
+      codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
+      worker_host: Map.get(metadata, :worker_host)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp notification_params(%{"params" => params}) when is_map(params), do: params
+  defp notification_params(%{params: params}) when is_map(params), do: params
+  defp notification_params(_payload), do: %{}
+
+  defp notification_field(payload, params, key) when is_map(payload) and is_map(params) and is_binary(key) do
+    atom_key =
+      case key do
+        "threadId" -> :threadId
+        "turnId" -> :turnId
+        _ -> nil
+      end
+
+    snake_key = String.replace_suffix(key, "Id", "_id")
+    snake_atom_key =
+      case key do
+        "threadId" -> :thread_id
+        "turnId" -> :turn_id
+        _ -> nil
+      end
+
+    params[key] ||
+      (is_atom(atom_key) && params[atom_key]) ||
+      payload[key] ||
+      (is_atom(atom_key) && payload[atom_key]) ||
+      payload[snake_key] ||
+      (is_atom(snake_atom_key) && payload[snake_atom_key]) ||
+      nil
+    |> sanitize_log_value()
+  end
+
+  defp notification_field(_payload, _params, _key), do: nil
+
+  defp notification_session_id(thread_id, turn_id) when is_binary(thread_id) and is_binary(turn_id) do
+    "#{thread_id}-#{turn_id}"
+  end
+
+  defp notification_session_id(_thread_id, _turn_id), do: nil
+
+  defp notification_item_id(params) when is_map(params) do
+    params["itemId"] || params[:itemId] || params["callId"] || params[:callId] || params["requestId"] || params[:requestId]
+  end
+
+  defp notification_item_id(_params), do: nil
+
+  defp notification_code(payload, params) when is_map(payload) and is_map(params) do
+    params["code"] ||
+      params[:code] ||
+      get_in(params, ["error", "code"]) ||
+      get_in(params, [:error, :code]) ||
+      payload["code"] ||
+      payload[:code] ||
+      get_in(payload, ["error", "code"]) ||
+      get_in(payload, [:error, :code])
+  end
+
+  defp notification_code(_payload, _params), do: nil
+
+  defp notification_type(payload, params) when is_map(payload) and is_map(params) do
+    params["type"] ||
+      params[:type] ||
+      get_in(params, ["error", "type"]) ||
+      get_in(params, [:error, :type]) ||
+      payload["type"] ||
+      payload[:type] ||
+      get_in(payload, ["error", "type"]) ||
+      get_in(payload, [:error, :type])
+  end
+
+  defp notification_type(_payload, _params), do: nil
+
+  defp notification_message(payload, params, payload_string)
+       when is_map(payload) and is_map(params) and is_binary(payload_string) do
+    (params["message"] ||
+       params[:message] ||
+       get_in(params, ["error", "message"]) ||
+       get_in(params, [:error, :message]) ||
+       get_in(params, ["error", "data", "message"]) ||
+       get_in(params, [:error, :data, :message]) ||
+       payload["message"] ||
+       payload[:message] ||
+       get_in(payload, ["error", "message"]) ||
+       get_in(payload, [:error, :message]) ||
+       payload_string)
+    |> sanitize_log_value()
+  end
+
+  defp notification_message(_payload, _params, payload_string) when is_binary(payload_string) do
+    sanitize_log_value(payload_string)
+  end
+
+  defp notification_params_keys(params) when is_map(params) do
+    keys =
+      params
+      |> Map.keys()
+      |> Enum.map(fn key ->
+        case key do
+          value when is_atom(value) -> Atom.to_string(value)
+          value when is_binary(value) -> value
+          value -> inspect(value)
+        end
+      end)
+      |> Enum.sort()
+
+    if keys == [], do: nil, else: keys
+  end
+
+  defp notification_params_keys(_params), do: nil
+
+  defp sanitize_log_value(value) when is_binary(value) do
+    value
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> then(fn text ->
+      if text == "" do
+        nil
+      else
+        String.slice(text, 0, @max_notification_log_chars)
+      end
+    end)
+  end
+
+  defp sanitize_log_value(value), do: value
 
   defp maybe_handle_approval_request(
          port,

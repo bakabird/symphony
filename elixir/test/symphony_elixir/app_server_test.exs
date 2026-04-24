@@ -1338,6 +1338,84 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server logs structured details for codex error notifications" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-error-notification-log-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-93A")
+      codex_binary = Path.join(test_root, "fake-codex")
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-93a"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-93a"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"error","params":{"threadId":"thread-93a","turnId":"turn-93a","code":"upstream_disconnected","type":"transport","message":"stream disconnected - retrying sampling request","error":{"message":"stream disconnected"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-error-notification-log",
+        identifier: "MT-93A",
+        title: "Error notification logging",
+        description: "Ensure app server logs error notifications with context details",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-93A",
+        labels: ["backend"]
+      }
+
+      test_pid = self()
+      on_message = fn message -> send(test_pid, {:app_server_message, message}) end
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert {:ok, _result} =
+                   AppServer.run(workspace, "Capture error notification details", issue, on_message: on_message)
+        end)
+
+      assert_received {:app_server_message, %{event: :notification, payload: %{"method" => "error"}}}
+      assert_received {:app_server_message, %{event: :turn_completed}}
+      assert log =~ ~s(Codex notification: "error" details=)
+      assert log =~ ~s(session_id: "thread-93a-turn-93a")
+      assert log =~ ~s(code: "upstream_disconnected")
+      assert log =~ ~s(message: "stream disconnected - retrying sampling request")
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server emits malformed events for JSON-like protocol lines that fail to decode" do
     test_root =
       Path.join(
