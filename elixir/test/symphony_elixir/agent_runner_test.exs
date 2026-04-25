@@ -258,4 +258,160 @@ defmodule SymphonyElixir.AgentRunnerTest do
       File.rm_rf(test_root)
     end
   end
+
+  test "agent runner uses the configured claude cli backend without an opts override" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-configured-backend-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      log_path = Path.join(test_root, "claude-runner.log")
+      script_path = Path.join(test_root, "fake_claude_runner.py")
+      issue_id = "issue-configured-backend"
+      issue_identifier = "MT-427"
+
+      File.mkdir_p!(test_root)
+      write_fake_claude_stream_script!(script_path, log_path)
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        title: "Configured backend",
+        description: "Exercise workflow-based backend selection",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-427",
+        labels: []
+      }
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        max_turns: 3,
+        agent_backend_id: "claude_cli_stream",
+        agent_backend_command: "python3 #{script_path} #{log_path}"
+      )
+
+      Process.delete(:configured_backend_state_fetches)
+
+      state_fetcher = fn [_issue_id] ->
+        next_count = Process.get(:configured_backend_state_fetches, 0) + 1
+        Process.put(:configured_backend_state_fetches, next_count)
+
+        state =
+          case next_count do
+            1 -> "In Progress"
+            _ -> "Done"
+          end
+
+        {:ok, [%Issue{issue | state: state}]}
+      end
+
+      assert :ok =
+               AgentRunner.run(
+                 issue,
+                 self(),
+                 issue_state_fetcher: state_fetcher,
+                 max_turns: 3
+               )
+
+      assert_receive {:agent_worker_update, ^issue_id, started_1}
+      assert started_1.event == :session_started
+      assert started_1.thread_id == "claude-session-1"
+      assert started_1.session_id == "claude-session-1-turn-1"
+
+      assert_receive {:agent_worker_update, ^issue_id, notification_1}
+      assert notification_1.event == :notification
+      assert notification_1.payload["type"] == "system"
+
+      assert_receive {:agent_worker_update, ^issue_id, stream_1}
+      assert stream_1.event == :notification
+      assert stream_1.payload["type"] == "stream_event"
+
+      assert_receive {:agent_worker_update, ^issue_id, completed_1}
+      assert completed_1.event == :turn_completed
+
+      assert_receive {:agent_worker_update, ^issue_id, started_2}
+      assert started_2.event == :session_started
+      assert started_2.thread_id == "claude-session-1"
+      assert started_2.session_id == "claude-session-1-turn-2"
+
+      assert_receive {:agent_worker_update, ^issue_id, notification_2}
+      assert notification_2.event == :notification
+      assert notification_2.payload["type"] == "system"
+
+      assert_receive {:agent_worker_update, ^issue_id, stream_2}
+      assert stream_2.event == :notification
+      assert stream_2.payload["type"] == "stream_event"
+
+      assert_receive {:agent_worker_update, ^issue_id, completed_2}
+      assert completed_2.event == :turn_completed
+      assert Process.get(:configured_backend_state_fetches) == 2
+
+      log = File.read!(log_path)
+      assert log =~ "resume=None|prompt="
+      assert log =~ "resume=claude-session-1|prompt=Continuation guidance:"
+    after
+      Process.delete(:configured_backend_state_fetches)
+      File.rm_rf(test_root)
+    end
+  end
+
+  defp write_fake_claude_stream_script!(path, _log_path) do
+    script =
+      [
+        "import json",
+        "import sys",
+        "",
+        "args = sys.argv[2:]",
+        "log_path = sys.argv[1]",
+        "",
+        "resume_value = None",
+        "prompt = args[-1]",
+        "",
+        "for index, value in enumerate(args):",
+        "    if value == \"--resume\":",
+        "        resume_value = args[index + 1]",
+        "",
+        "session_id = resume_value or \"claude-session-1\"",
+        "",
+        "with open(log_path, \"a\", encoding=\"utf-8\") as handle:",
+        "    handle.write(f\"resume={resume_value}|prompt={prompt}\\\\n\")",
+        "",
+        "print(json.dumps({",
+        "    \"type\": \"system\",",
+        "    \"subtype\": \"init\",",
+        "    \"session_id\": session_id",
+        "}), flush=True)",
+        "",
+        "print(json.dumps({",
+        "    \"type\": \"stream_event\",",
+        "    \"session_id\": session_id,",
+        "    \"event\": {",
+        "        \"type\": \"content_block_delta\",",
+        "        \"delta\": {",
+        "            \"type\": \"text_delta\",",
+        "            \"text\": \"runner\"",
+        "        }",
+        "    }",
+        "}), flush=True)",
+        "",
+        "print(json.dumps({",
+        "    \"type\": \"result\",",
+        "    \"subtype\": \"success\",",
+        "    \"session_id\": session_id,",
+        "    \"usage\": {",
+        "        \"input_tokens\": 2,",
+        "        \"output_tokens\": 3,",
+        "        \"total_tokens\": 5",
+        "    },",
+        "    \"result\": prompt",
+        "}), flush=True)",
+        ""
+      ]
+      |> Enum.join("\n")
+
+    File.write!(path, script)
+  end
 end

@@ -2,6 +2,8 @@ defmodule SymphonyElixir.AgentBackendTest do
   use SymphonyElixir.TestSupport
 
   alias SymphonyElixir.AgentBackend
+  alias SymphonyElixir.AgentBackend.AcpStdio
+  alias SymphonyElixir.AgentBackend.ClaudeCliStream
   alias SymphonyElixir.AgentBackend.CodexAppServer
   alias SymphonyElixir.AgentBackend.Resolver
 
@@ -79,5 +81,11 @@ defmodule SymphonyElixir.AgentBackendTest do
 
     assert Resolver.resolve(backend: :fake_backend, backend_module: Resolver) ==
              :fake_backend
+
+    write_workflow_file!(Workflow.workflow_file_path(), agent_backend_id: "acp_stdio")
+    assert Resolver.resolve() == AcpStdio
+
+    write_workflow_file!(Workflow.workflow_file_path(), agent_backend_id: "claude_cli_stream")
+    assert Resolver.resolve() == ClaudeCliStream
   end
 end

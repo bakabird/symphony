@@ -107,6 +107,11 @@ defmodule SymphonyElixir.TestSupport do
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
+          agent_backend_id: nil,
+          agent_backend_command: nil,
+          agent_backend_turn_timeout_ms: nil,
+          agent_backend_read_timeout_ms: nil,
+          agent_backend_stall_timeout_ms: nil,
           codex_command: "codex app-server",
           codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
           codex_thread_sandbox: "workspace-write",
@@ -144,6 +149,11 @@ defmodule SymphonyElixir.TestSupport do
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
+    agent_backend_id = Keyword.get(config, :agent_backend_id)
+    agent_backend_command = Keyword.get(config, :agent_backend_command)
+    agent_backend_turn_timeout_ms = Keyword.get(config, :agent_backend_turn_timeout_ms)
+    agent_backend_read_timeout_ms = Keyword.get(config, :agent_backend_read_timeout_ms)
+    agent_backend_stall_timeout_ms = Keyword.get(config, :agent_backend_stall_timeout_ms)
     codex_command = Keyword.get(config, :codex_command)
     codex_approval_policy = Keyword.get(config, :codex_approval_policy)
     codex_thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
@@ -184,6 +194,13 @@ defmodule SymphonyElixir.TestSupport do
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
+        agent_backend_yaml(
+          agent_backend_id,
+          agent_backend_command,
+          agent_backend_turn_timeout_ms,
+          agent_backend_read_timeout_ms,
+          agent_backend_stall_timeout_ms
+        ),
         "codex:",
         "  command: #{yaml_value(codex_command)}",
         "  approval_policy: #{yaml_value(codex_approval_policy)}",
@@ -224,6 +241,21 @@ defmodule SymphonyElixir.TestSupport do
   end
 
   defp yaml_value(value), do: yaml_value(to_string(value))
+
+  defp agent_backend_yaml(nil, nil, nil, nil, nil), do: nil
+
+  defp agent_backend_yaml(id, command, turn_timeout_ms, read_timeout_ms, stall_timeout_ms) do
+    [
+      "agent_backend:",
+      id && "  id: #{yaml_value(id)}",
+      command && "  command: #{yaml_value(command)}",
+      turn_timeout_ms && "  turn_timeout_ms: #{yaml_value(turn_timeout_ms)}",
+      read_timeout_ms && "  read_timeout_ms: #{yaml_value(read_timeout_ms)}",
+      stall_timeout_ms && "  stall_timeout_ms: #{yaml_value(stall_timeout_ms)}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
 
   defp hooks_yaml(nil, nil, nil, nil, timeout_ms), do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
 
