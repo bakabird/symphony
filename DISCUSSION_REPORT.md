@@ -163,13 +163,27 @@ blocked_with_reason
 - Agent Client Protocol overview: https://agentclientprotocol.com/protocol/overview
 - Agent Client Protocol transports: https://agentclientprotocol.com/protocol/transports
 
-## 当前项目完成情况核对（2026-04-22）
+## 当前项目完成情况核对（2026-04-25）
 
-### 已完成
+### 已实现
 
-#### Validation Evidence / Ticket-aware Validation Guidance
+#### 1) AgentBackend 兼容层已落地
 
-验证策略升级已经从讨论落地为 `ticket-aware-validation-guidance` 能力：
+`AgentBackend` 这一层已经不再停留在讨论阶段，当前代码已完成首轮工程化改造：
+
+- OpenSpec change `agent-backend-compatibility-layer` 的任务清单已全部勾选完成。
+- `elixir/lib/symphony_elixir/agent_backend.ex` 已定义 `AgentBackend` behaviour，以及 backend/session/turn/event 的共享约定与 runtime event normalization helper。
+- `elixir/lib/symphony_elixir/agent_backend/resolver.ex` 已提供 backend resolver，默认返回 `SymphonyElixir.AgentBackend.CodexAppServer`。
+- `elixir/lib/symphony_elixir/agent_backend/codex_app_server.ex` 已将现有 `SymphonyElixir.Codex.AppServer` 包装为默认 `codex_app_server` backend。
+- `elixir/lib/symphony_elixir/agent_runner.ex` 已通过 resolved backend 执行 session/turn，不再直接调用 `SymphonyElixir.Codex.AppServer`；同时已构造 backend context、turn map 和最小 `work_item` map。
+- continuation prompt 已从 “previous Codex turn” 调整为 “previous agent turn”。
+- `elixir/lib/symphony_elixir/orchestrator.ex` 已接收 `:agent_worker_update`，并保留 `:codex_worker_update` 兼容路径。
+- `SPEC.md` 已加入 AgentBackend runtime contract，并明确默认兼容路径是 `codex_app_server`；OpenCode/ACP/Claude CLI stream 被标记为后续实现。
+- 现有观测面仍保留 `codex_*` 字段，以兼容 dashboard、snapshot 和 presenter。
+
+#### 2) Validation Evidence / Ticket-aware Validation Guidance 已落地
+
+验证策略升级已经从讨论落地为正式能力：
 
 - OpenSpec change `validation-evidence-profiles` 已归档，任务清单全部完成。
 - `openspec/specs/ticket-aware-validation-guidance/spec.md` 已存在正式需求，覆盖 validation levels、evidence types、Linear label 匹配、fallback、prompt rendering、workpad evidence 记录、ticket-authored validation additive。
@@ -178,107 +192,97 @@ blocked_with_reason
 - `SymphonyElixir.Config.Schema` 已实现 validation levels、evidence types、rules、default rule 的 schema、默认值和校验。
 - `SymphonyElixir.ValidationGuidance` 已实现基于 issue labels 的解析逻辑。
 - `SymphonyElixir.PromptBuilder` 已将 resolved validation guidance 注入模板上下文。
-- 测试文件 `elixir/test/symphony_elixir/validation_guidance_test.exs` 已覆盖默认值、配置解析、label 匹配、fallback、first-match rule order 和 prompt rendering。
+- `elixir/test/symphony_elixir/validation_guidance_test.exs` 已覆盖默认值、配置解析、label 匹配、fallback、first-match rule order 和 prompt rendering。
 
 对应原待执行项状态：
 
-- “定义验证证据 schema 与项目类型 profile”：已完成核心落地，当前形态是 `WORKFLOW.md` 驱动的 validation levels + evidence types + label rules。
+- “定义验证证据 schema 与项目类型 profile”：已完成当前版本落地，当前形态是 `WORKFLOW.md` 驱动的 validation levels + evidence types + label rules。
 - “更新 workflow prompt 与报告模板，要求在无法做运行态验证时明确 handoff 与残余风险”：已完成 prompt/workpad 层落地。
 
-### 部分完成
+#### 3) Repo-local skills 前置要求已落地
 
-#### 规范与配置落地
+与后续 Work Channel 方向相关的 repo-local skills 前置要求也已进入实现：
 
-`ValidationEvidence` 方向已经在规范、配置、workflow 和 prompt 中落地，但 `AgentBackend`、`WorkItem`、`ProgressNote` 仍未成为正式规范或实现边界。
+- `openspec/specs/repo-local-skills-required/spec.md` 已定义 `commit`、`push`、`pull`、`land`、`linear` 为必需 repo-local skills。
+- `elixir/README.md` 已将这些 skills 标为 required prerequisites，而不是 optional setup。
+- `elixir/README.md` 已显式说明 `linear` skill 依赖 Symphony 的 `linear_graphql` app-server tool。
 
-已完成部分：
+### 部分实现
 
-- `SPEC.md` 已记录 validation guidance 配置和 prompt 行为。
-- `WORKFLOW.md` 已作为 validation profile 的第一落点。
-- 必需 runtime/media evidence 不可用时，已有 `manual_handoff` / `blocked_with_reason` 表达和 workpad 记录要求。
+#### 1) Tracker/Work 抽象有初步边界，但还不是通用 Work Channel
 
-仍未完成部分：
+目前已有一些基础抽象，但距离讨论中的 Work Channel 设计还差很远：
 
-- `SPEC.md` 尚未正式定义 `AgentBackend`、`WorkItem`、`ProgressNote`。
-- 顶层配置仍是 `codex` block，尚未迁移到 `agent_backend` / `executor` 模型。
-- 必需证据缺失时还没有 orchestrator 级强制门禁；当前是 prompt/workpad 驱动。
+- `elixir/lib/symphony_elixir/tracker.ex` 已经是 adapter boundary，而不是把所有 Linear 逻辑都散落在业务代码中。
+- `Tracker.adapter/0` 当前可以在运行时选择 `memory` 或 `linear` 适配器。
+- `AgentRunner` 和 `AgentBackend` 已经传递最小 `work_item` map，这说明运行时边界开始弱化对完整 Linear struct 的依赖。
 
-### 未完成
+但这些仍不足以算作 Work Channel 泛化完成：
 
-#### AgentBackend 工程化改造
+- 上层语义仍是 `issue` / `tracker`，不是 `WorkItem` / `WorkSource` / `WorkSink`。
+- `memory` 更像测试/本地适配器，不是 GitHub/Jira/local workflows 的正式通道实现。
 
-当前项目仍直接运行 `SymphonyElixir.Codex.AppServer`：
+### 未实现
 
-- `AgentRunner` 仍直接 alias/call `SymphonyElixir.Codex.AppServer`。
-- 运行事件和可观测语义仍大量使用 `codex_*`。
-- 尚无 `AgentBackend` behaviour。
-- 尚无 `codex_app_server` backend wrapper。
-- 尚无 `acp_stdio` 实现。
+#### 1) 非 Codex backend 仍未落地
+
+虽然 `AgentBackend` compatibility layer 已完成，但真正的多 agent backend 目标还没有实现：
+
+- 尚无 `acp_stdio` backend。
 - 尚无 `opencode acp` 集成验证。
-- 尚无 `claude_cli_stream` 实现。
+- 尚无 `claude_cli_stream` backend。
+- backend 选择目前主要通过运行时 opts / 测试 override 完成，尚未形成 operator-facing 的正式配置入口。
+- `WORKFLOW.md` 与 `Config.Schema` 顶层仍是 `codex` 配置块，尚未迁移到通用 `agent_backend` / `executor` 模型。
+- 运行态和可观测字段仍大量保留 `codex_*` 命名；这是兼容性选择，不是最终中性命名。
 
-#### Work Channel 工程化改造
+#### 2) Work Channel 泛化仍基本未开始
 
 当前项目仍以 Linear issue 为主模型：
 
-- `SymphonyElixir.Linear.Issue` 仍是标准 work record。
+- `SymphonyElixir.Linear.Issue` 仍是主要 work record。
 - `Tracker` facade 仍以 issue/tracker API 命名。
-- `Codex.DynamicTool` 仍只暴露 `linear_graphql`。
-- 尚无 `WorkItem` 标准模型。
-- 尚无 `WorkSource` / `WorkSink` / `ProgressNote` 契约。
-- 尚无通用 `work.*` agent 工具面。
+- `SymphonyElixir.Codex.DynamicTool` 仍只暴露 `linear_graphql`。
+- `SPEC.md` 仍未定义正式 `WorkItem`、`ProgressNote`、`WorkSource`、`WorkSink` 契约。
+- 尚无 repo-local `symphony-work` CLI/scripts。
+- 尚无 provider-neutral `work.*` agent 操作面。
+- 运行时支持仍主要围绕 `tracker.kind == linear` 展开；`memory` 适配器存在，但不代表 GitHub/Jira/local workflow 已接入。
+
+#### 3) 文档与规格清理仍有尾项
+
+- `openspec/specs/ticket-aware-validation-guidance/spec.md` 的 `Purpose` 仍是 `TBD`。
+- `openspec/specs/repo-local-skills-required/spec.md` 的 `Purpose` 仍是 `TBD`。
+- `agent-backend-compatibility-layer` 的代码和任务已完成，但当前仍保留在活跃 change 目录，尚未完成归档整理。
 
 ### 验证说明
 
-本次核对尝试运行：
+本次核对已实际运行最小验证，而不是仅做静态阅读：
 
-- `mise exec -- mix test test/symphony_elixir/validation_guidance_test.exs`
-- `mise exec -- mix specs.check`
+- `mise exec -- mix test test/symphony_elixir/agent_backend_test.exs`
+  - 结果：`3 tests, 0 failures`
+- `mise exec -- mix test test/symphony_elixir/agent_backend/codex_app_server_test.exs test/symphony_elixir/agent_runner_test.exs test/symphony_elixir/validation_guidance_test.exs test/symphony_elixir/orchestrator_status_test.exs`
+  - 结果：`56 tests, 0 failures`
 
-但本地 `elixir/mise.toml` 未被 trust，命令在执行前被 `mise` 阻断；未自动执行 `mise trust`，因此没有改变本机信任状态。
+本次未执行 `mise trust`，也没有修改本机信任状态；测试是通过 `mise exec -- ...` 直接完成的。
 
 ## 剩余待执行
 
-### 1) 规范与配置落地
+### 1) 完成真正的多 backend 支持
 
-- 在 `SPEC.md` 引入并固定 `AgentBackend`、`WorkItem`、`ProgressNote` 的正式定义。
-- 将配置从 `codex` 迁移到通用 `agent_backend`（或 `executor`）模型，并保留兼容行为。
-- 补齐当前 OpenSpec `ticket-aware-validation-guidance` 的 `Purpose`，避免归档后仍保留 TBD。
+- 增加 `acp_stdio`，优先验证 `opencode acp`。
+- 增加 `claude_cli_stream`，接入 Claude Code CLI stream/json 输出与 session resume 能力。
+- 将 backend 选择从测试 override 升级为正式 workflow/config 能力。
+- 逐步把 `codex_*` 观测兼容字段迁移到真正的 backend-neutral 语义。
 
-### 2) AgentBackend 工程化改造
+### 2) 完成 Work Channel 泛化
 
-- 抽象 backend behaviour 与统一事件 schema。
-- 将现有 `Codex.AppServer` 封装为 `codex_app_server` 实现。
-- 增加 `acp_stdio` 首个跨代理后端实现，优先验证 `opencode acp`。
-- 增加 `claude_cli_stream` 专用后端，优先使用 Claude Code CLI 的 stream/json 输出、session resume、permission mode 与 MCP 配置能力。
-
-### 3) Work Channel 工程化改造
-
-- 引入 `WorkItem` 标准模型，替换线性 `Issue` 心智模型。
+- 引入正式 `WorkItem` 标准模型，替换以 `Issue` 为中心的心智模型。
 - 落地 `WorkSource` / `WorkSink` / `ProgressNote` 契约。
-- 将 Linear 适配到新契约，并通过 repo-local skills + `symphony-work` CLI/scripts 提供通用 work 操作面。
+- 将 Linear 适配到新契约。
+- 通过 repo-local skills + `symphony-work` CLI/scripts 提供通用 work 操作面。
+- 在此基础上再考虑 GitHub、Jira、local workflows 等新 channel。
 
-### 4) Validation Evidence 工程化改造
+### 3) 补齐文档和 OpenSpec 收尾
 
-- 后续可选：增加 orchestrator 级 evidence enforcement，决定是否在缺失必需证据时阻断状态流转。
-- 后续可选：将 `WORKFLOW.md` 中的 validation rules 抽象为更通用的项目类型 profile 或项目元数据生成机制。
-
-### 5) 待决策问题（Open Questions）
-
-- work item 的变更职责应更多在 orchestrator 还是 agent tools？
-- 兼容 Linear/GitHub/Jira/本地流程的最小 `WorkItem` 公共模型如何定义？
-- validation profile 是否长期保留在 `WORKFLOW.md`，还是后续升级为独立文件/项目元数据生成？
-- 必需证据缺失时，是否需要从 prompt/workpad 记录升级为 orchestrator 强制门禁？
-
-### 6) 已决策问题（Decisions）
-
-- ACP 作为支持 ACP 的 agent 的首选标准后端路径。
-- OpenCode ACP 是首个非 Codex 后端目标，通过 `acp_stdio` 集成。
-- 非 Codex 支持不被 ACP 可用性阻塞；Claude Code 先通过 `claude_cli_stream` 专用后端集成。
-- `AgentBackend` 是 Symphony 的长期抽象边界，ACP、Codex app-server、Claude CLI stream 都只是该边界下的具体实现族。
-- 通用 work 操作面的最终唯一形态是各渠道 skills + provider-neutral `symphony-work` CLI/scripts；不要求 MCP server 或 backend dynamic tool injection。
-- MCP、Codex dynamic tools、provider-native MCP 与 raw provider API 仅作为兼容、调试或 escape hatch，不是 Work Channel 的 canonical interface。
-- 模型被信任通过 skill 自主选择调用 CLI/scripts；CLI/scripts 必须负责 run scope、current work item binding、幂等性、provider authorization、状态映射与 audit。
-- validation guidance 第一阶段落点是 `WORKFLOW.md` front matter + prompt contract。
-- validation evidence 第一阶段采用 prompt/workpad 驱动记录，不做 orchestrator 强制阻断。
-- ticket-authored `Validation` / `Test Plan` / `Testing` 要求是 additive，不能被配置生成的 validation guidance 降级。
+- 为已归档 spec 补齐 `Purpose`，清掉 `TBD`。
+- 归档已完成的 `agent-backend-compatibility-layer` change。
+- 在 `SPEC.md` 中继续把“已兼容保留的 Codex 细节”与“长期中性契约”拆得更清楚。
