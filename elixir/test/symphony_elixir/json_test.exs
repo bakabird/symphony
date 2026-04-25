@@ -8,4 +8,9 @@ defmodule SymphonyElixir.JsonTest do
 
     assert Json.sanitize(date) == date
   end
+
+  test "decode delegates to Jason" do
+    assert Json.decode("{\"ok\":true}") == {:ok, %{"ok" => true}}
+    assert Json.decode!("{\"ok\":true}") == %{"ok" => true}
+  end
 end

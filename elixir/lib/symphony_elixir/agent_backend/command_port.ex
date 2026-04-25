@@ -58,7 +58,7 @@ defmodule SymphonyElixir.AgentBackend.CommandPort do
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = pending_line <> to_string(chunk)
 
-        case Jason.decode(complete_line) do
+        case Json.decode(complete_line) do
           {:ok, payload} when is_map(payload) ->
             {:ok, payload, ""}
 
