@@ -150,6 +150,35 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defmodule AgentBackendConfig do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias SymphonyElixir.Config.Schema
+
+    @primary_key false
+    embedded_schema do
+      field(:id, :string, default: "codex_app_server")
+      field(:command, :string)
+      field(:turn_timeout_ms, :integer)
+      field(:read_timeout_ms, :integer)
+      field(:stall_timeout_ms, :integer)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:id, :command, :turn_timeout_ms, :read_timeout_ms, :stall_timeout_ms], empty_values: [])
+      |> update_change(:id, &Schema.normalize_backend_id/1)
+      |> validate_required([:id])
+      |> validate_inclusion(:id, Schema.supported_agent_backends(), message: "is unsupported")
+      |> validate_number(:turn_timeout_ms, greater_than: 0)
+      |> validate_number(:read_timeout_ms, greater_than: 0)
+      |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
+    end
+  end
+
   defmodule Codex do
     @moduledoc false
     use Ecto.Schema
@@ -444,6 +473,7 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:agent_backend, AgentBackendConfig, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:validation, Validation, on_replace: :update)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
@@ -505,8 +535,23 @@ defmodule SymphonyElixir.Config.Schema do
   def supported_validation_evidence_types, do: ["none", "logs", "screenshot", "video"]
 
   @doc false
+  @spec supported_agent_backends() :: [String.t()]
+  def supported_agent_backends, do: ["codex_app_server", "acp_stdio", "claude_cli_stream"]
+
+  @doc false
   @spec supported_validation_unavailable_behaviors() :: [String.t()]
   def supported_validation_unavailable_behaviors, do: ["manual_handoff", "blocked_with_reason"]
+
+  @doc false
+  @spec normalize_backend_id(term()) :: term()
+  def normalize_backend_id(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace("-", "_")
+  end
+
+  def normalize_backend_id(value), do: value
 
   @doc false
   @spec normalize_validation_name(term()) :: term()
@@ -555,6 +600,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
+    |> cast_embed(:agent_backend, with: &AgentBackendConfig.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:validation, with: &Validation.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
@@ -581,7 +627,14 @@ defmodule SymphonyElixir.Config.Schema do
           turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
       }
 
-      {:ok, %{settings | tracker: tracker, workspace: workspace, codex: codex, validation: validation}}
+      {:ok,
+       %{
+         settings
+         | tracker: tracker,
+           workspace: workspace,
+           codex: codex,
+           validation: validation
+       }}
     end
   end
 

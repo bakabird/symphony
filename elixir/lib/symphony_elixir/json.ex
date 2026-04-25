@@ -3,6 +3,16 @@ defmodule SymphonyElixir.Json do
 
   @replacement <<0xEF, 0xBF, 0xBD>>
 
+  @spec decode(iodata(), keyword()) :: {:ok, term()} | {:error, Jason.DecodeError.t()}
+  def decode(value, opts \\ []) do
+    Jason.decode(value, opts)
+  end
+
+  @spec decode!(iodata(), keyword()) :: term()
+  def decode!(value, opts \\ []) do
+    Jason.decode!(value, opts)
+  end
+
   @spec encode!(term(), keyword()) :: String.t()
   def encode!(value, opts \\ []) do
     value

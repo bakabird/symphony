@@ -744,6 +744,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
+    assert config.agent_backend.id == "codex_app_server"
     assert config.codex.command == "codex app-server"
 
     assert config.codex.approval_policy == %{
@@ -772,8 +773,42 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.codex.read_timeout_ms == 5_000
     assert config.codex.stall_timeout_ms == 300_000
 
+    assert Config.agent_backend_settings() == %{
+             id: "codex_app_server",
+             command: "codex app-server",
+             turn_timeout_ms: 3_600_000,
+             read_timeout_ms: 5_000,
+             stall_timeout_ms: 300_000
+           }
+
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "codex app-server --model gpt-5.3-codex")
     assert Config.settings!().codex.command == "codex app-server --model gpt-5.3-codex"
+
+    write_workflow_file!(Workflow.workflow_file_path(), agent_backend_id: "acp_stdio")
+
+    assert Config.agent_backend_settings() == %{
+             id: "acp_stdio",
+             command: "opencode acp",
+             turn_timeout_ms: 3_600_000,
+             read_timeout_ms: 5_000,
+             stall_timeout_ms: 300_000
+           }
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_backend_id: "claude_cli_stream",
+      agent_backend_command: "claude --bare",
+      agent_backend_turn_timeout_ms: 42_000,
+      agent_backend_read_timeout_ms: 7_000,
+      agent_backend_stall_timeout_ms: 99_000
+    )
+
+    assert Config.agent_backend_settings() == %{
+             id: "claude_cli_stream",
+             command: "claude --bare",
+             turn_timeout_ms: 42_000,
+             read_timeout_ms: 7_000,
+             stall_timeout_ms: 99_000
+           }
 
     explicit_root =
       Path.join(

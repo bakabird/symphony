@@ -99,6 +99,8 @@ hooks:
 agent:
   max_concurrent_agents: 10
   max_turns: 20
+agent_backend:
+  id: codex_app_server
 codex:
   command: codex app-server
 ---
@@ -111,6 +113,10 @@ Title: {{ issue.title }} Body: {{ issue.description }}
 Notes:
 
 - If a value is missing, defaults are used.
+- `agent_backend.id` selects the execution backend. Supported values:
+  - `codex_app_server` (default compatibility path; still uses the `codex` block)
+  - `acp_stdio` (defaults to `opencode acp` unless `agent_backend.command` is set)
+  - `claude_cli_stream` (defaults to `claude` unless `agent_backend.command` is set)
 - Safer Codex defaults are used when policy fields are omitted:
   - `codex.approval_policy` defaults to `{"reject":{"sandbox_approval":true,"rules":true,"mcp_elicitations":true}}`
   - `codex.thread_sandbox` defaults to `workspace-write`
@@ -120,7 +126,7 @@ Notes:
 - When `codex.turn_sandbox_policy` is set explicitly, Symphony passes the map through to Codex
   unchanged. Compatibility then depends on the targeted Codex app-server version rather than local
   Symphony validation.
-- `agent.max_turns` caps how many back-to-back Codex turns Symphony will run in a single agent
+- `agent.max_turns` caps how many back-to-back agent turns Symphony will run in a single worker
   invocation when a turn completes normally but the issue is still in an active state. Default: `20`.
 - If the Markdown body is blank, Symphony uses a default prompt template that includes the issue
   identifier, title, and body.
@@ -139,6 +145,9 @@ tracker:
   api_key: $LINEAR_API_KEY
 workspace:
   root: $SYMPHONY_WORKSPACE_ROOT
+agent_backend:
+  id: acp_stdio
+  command: "$OPENCODE_BIN acp"
 hooks:
   after_create: |
     git clone --depth 1 "$SOURCE_REPO_URL" .

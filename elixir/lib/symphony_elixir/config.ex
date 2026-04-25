@@ -28,6 +28,14 @@ defmodule SymphonyElixir.Config do
           turn_sandbox_policy: map()
         }
 
+  @type agent_backend_runtime_settings :: %{
+          id: String.t(),
+          command: String.t(),
+          turn_timeout_ms: pos_integer(),
+          read_timeout_ms: pos_integer(),
+          stall_timeout_ms: non_neg_integer()
+        }
+
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
   def settings do
     case Workflow.current() do
@@ -94,6 +102,45 @@ defmodule SymphonyElixir.Config do
   def validation_guidance(issue) do
     validation_settings()
     |> ValidationGuidance.resolve(issue)
+  end
+
+  @spec agent_backend_settings() :: agent_backend_runtime_settings()
+  def agent_backend_settings do
+    settings = settings!()
+    backend_id = selected_agent_backend_id(settings)
+
+    %{
+      id: backend_id,
+      command: selected_agent_backend_command(settings, backend_id),
+      turn_timeout_ms: settings.agent_backend.turn_timeout_ms || settings.codex.turn_timeout_ms,
+      read_timeout_ms: settings.agent_backend.read_timeout_ms || settings.codex.read_timeout_ms,
+      stall_timeout_ms: settings.agent_backend.stall_timeout_ms || settings.codex.stall_timeout_ms
+    }
+  end
+
+  @spec agent_backend_id() :: String.t()
+  def agent_backend_id do
+    settings!()
+    |> selected_agent_backend_id()
+  end
+
+  @spec agent_backend_module() :: module()
+  def agent_backend_module do
+    case agent_backend_id() do
+      "acp_stdio" ->
+        SymphonyElixir.AgentBackend.AcpStdio
+
+      "claude_cli_stream" ->
+        SymphonyElixir.AgentBackend.ClaudeCliStream
+
+      _ ->
+        SymphonyElixir.AgentBackend.CodexAppServer
+    end
+  end
+
+  @spec agent_stall_timeout_ms() :: non_neg_integer()
+  def agent_stall_timeout_ms do
+    agent_backend_settings().stall_timeout_ms
   end
 
   @spec server_port() :: non_neg_integer() | nil
@@ -163,5 +210,21 @@ defmodule SymphonyElixir.Config do
       other ->
         "Invalid WORKFLOW.md config: #{inspect(other)}"
     end
+  end
+
+  defp selected_agent_backend_id(settings) when is_map(settings) do
+    settings.agent_backend.id || "codex_app_server"
+  end
+
+  defp selected_agent_backend_command(settings, "acp_stdio") do
+    settings.agent_backend.command || "opencode acp"
+  end
+
+  defp selected_agent_backend_command(settings, "claude_cli_stream") do
+    settings.agent_backend.command || "claude"
+  end
+
+  defp selected_agent_backend_command(settings, _backend_id) do
+    settings.codex.command
   end
 end
