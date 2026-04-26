@@ -7,6 +7,12 @@ defmodule SymphonyElixir.AgentRunner do
   alias SymphonyElixir.AgentBackend.Resolver
   alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
 
+  @required_backend_callbacks [
+    start_session: 2,
+    run_turn: 3,
+    stop_session: 1
+  ]
+
   @type worker_host :: String.t() | nil
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
@@ -105,19 +111,42 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   @dialyzer {:nowarn_function, ensure_backend_module!: 1}
-  defp ensure_backend_module!(backend_module) do
-    if is_atom(backend_module) and backend_module_valid?(backend_module) do
-      backend_module
-    else
-      raise ArgumentError,
-            "Resolved backend #{inspect(backend_module)} does not implement AgentBackend callbacks"
+  defp ensure_backend_module!(backend_module) when is_atom(backend_module) do
+    case Code.ensure_loaded(backend_module) do
+      {:module, ^backend_module} ->
+        ensure_backend_callbacks!(backend_module)
+
+      {:error, reason} ->
+        raise ArgumentError,
+              "Resolved backend #{inspect(backend_module)} could not be loaded: #{inspect(reason)}"
     end
   end
 
-  defp backend_module_valid?(backend_module) do
-    function_exported?(backend_module, :start_session, 2) and
-      function_exported?(backend_module, :run_turn, 3) and
-      function_exported?(backend_module, :stop_session, 1)
+  defp ensure_backend_module!(backend_module) do
+    raise ArgumentError, "Resolved backend #{inspect(backend_module)} is not a module atom"
+  end
+
+  defp ensure_backend_callbacks!(backend_module) do
+    case missing_backend_callbacks(backend_module) do
+      [] ->
+        backend_module
+
+      missing_callbacks ->
+        formatted_callbacks = format_callback_signatures(missing_callbacks)
+
+        raise ArgumentError,
+              "Resolved backend #{inspect(backend_module)} does not implement AgentBackend callbacks: #{formatted_callbacks}"
+    end
+  end
+
+  defp missing_backend_callbacks(backend_module) do
+    Enum.reject(@required_backend_callbacks, fn {name, arity} ->
+      function_exported?(backend_module, name, arity)
+    end)
+  end
+
+  defp format_callback_signatures(callbacks) do
+    Enum.map_join(callbacks, ", ", fn {name, arity} -> "#{name}/#{arity}" end)
   end
 
   defp do_run_backend_turns(context, turn_number) do

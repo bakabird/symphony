@@ -62,6 +62,21 @@ defmodule SymphonyElixir.AgentRunnerTest do
     def stop_session(_session), do: :ok
   end
 
+  defmodule MissingStopSessionBackend do
+    def start_session(_context, _opts), do: {:ok, :missing_stop_session}
+
+    def run_turn(_session, turn, _opts) do
+      {:ok,
+       %{
+         backend: :missing_stop_session,
+         result: :ok,
+         session_id: "missing-stop-session-#{turn.turn_number}",
+         thread_id: "missing-stop-thread",
+         turn_id: Integer.to_string(turn.turn_number)
+       }}
+    end
+  end
+
   test "agent runner resolves backend override, forwards updates, continues, and stops session" do
     test_root =
       Path.join(
@@ -225,23 +240,24 @@ defmodule SymphonyElixir.AgentRunnerTest do
     end
   end
 
-  test "agent runner rejects backends that do not implement the AgentBackend callbacks" do
+  test "agent runner raises load failure when backend module cannot be loaded" do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-agent-runner-invalid-backend-#{System.unique_integer([:positive])}"
+        "symphony-elixir-agent-runner-missing-backend-#{System.unique_integer([:positive])}"
       )
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
-      issue_id = "issue-invalid-backend"
+      issue_id = "issue-missing-backend"
       issue_identifier = "MT-426"
+      missing_module = Module.concat([__MODULE__, "MissingBackend#{System.unique_integer([:positive])}"])
 
       issue = %Issue{
         id: issue_id,
         identifier: issue_identifier,
-        title: "Invalid backend",
-        description: "Exercise backend validation",
+        title: "Missing backend",
+        description: "Exercise backend module load failure",
         state: "In Progress",
         url: "https://example.org/issues/MT-426",
         labels: []
@@ -251,8 +267,42 @@ defmodule SymphonyElixir.AgentRunnerTest do
         workspace_root: workspace_root
       )
 
-      assert_raise ArgumentError, ~r/does not implement AgentBackend callbacks/, fn ->
-        AgentRunner.run(issue, self(), backend: :fake_backend)
+      assert_raise ArgumentError, ~r/could not be loaded/, fn ->
+        AgentRunner.run(issue, self(), backend: missing_module)
+      end
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner raises callback contract failure for loaded invalid backend modules" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-callback-mismatch-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      issue_id = "issue-callback-mismatch"
+      issue_identifier = "MT-428"
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        title: "Callback mismatch backend",
+        description: "Exercise callback contract validation",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-428",
+        labels: []
+      }
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root
+      )
+
+      assert_raise ArgumentError, ~r/does not implement AgentBackend callbacks: stop_session\/1/, fn ->
+        AgentRunner.run(issue, self(), backend: MissingStopSessionBackend)
       end
     after
       File.rm_rf(test_root)
@@ -275,6 +325,10 @@ defmodule SymphonyElixir.AgentRunnerTest do
 
       File.mkdir_p!(test_root)
       write_fake_claude_stream_script!(script_path, log_path)
+      backend_module = SymphonyElixir.AgentBackend.ClaudeCliStream
+      unload_module(backend_module)
+
+      assert :code.is_loaded(backend_module) == false
 
       issue = %Issue{
         id: issue_id,
@@ -315,6 +369,8 @@ defmodule SymphonyElixir.AgentRunnerTest do
                  issue_state_fetcher: state_fetcher,
                  max_turns: 3
                )
+
+      assert match?({:file, _}, :code.is_loaded(backend_module))
 
       assert_receive {:agent_worker_update, ^issue_id, started_1}
       assert started_1.event == :session_started
@@ -413,5 +469,11 @@ defmodule SymphonyElixir.AgentRunnerTest do
       |> Enum.join("\n")
 
     File.write!(path, script)
+  end
+
+  defp unload_module(module) when is_atom(module) do
+    :code.purge(module)
+    :code.delete(module)
+    :ok
   end
 end
