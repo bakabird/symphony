@@ -33,4 +33,4 @@
 
 3. `StartMissionCenter.sh`
 - 面向项目目录内直接启动。
-- 默认包含 `--i-understand-that-this-will-be-running-without-the-usual-guardrails`。
+- 传给 `symphony` 启动命令要默认包含 `--i-understand-that-this-will-be-running-without-the-usual-guardrails`。
