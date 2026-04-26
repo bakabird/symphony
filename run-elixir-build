@@ -2,7 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/elixir"
-mise trust
+mise trust --quiet
 mise install
 mise exec -- mix setup
 mise exec -- mix build
