@@ -106,7 +106,7 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStreamTest do
           assert second_completed.event == :turn_completed
 
           assert :ok = ClaudeCliStream.stop_session(session)
-      end)
+        end)
 
       assert log =~ first_expected_command
       assert log =~ second_expected_command

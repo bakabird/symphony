@@ -577,6 +577,7 @@ defmodule SymphonyElixir.Codex.AppServer do
       end
 
     snake_key = String.replace_suffix(key, "Id", "_id")
+
     snake_atom_key =
       case key do
         "threadId" -> :thread_id
@@ -591,7 +592,7 @@ defmodule SymphonyElixir.Codex.AppServer do
       payload[snake_key] ||
       (is_atom(snake_atom_key) && payload[snake_atom_key]) ||
       nil
-    |> sanitize_log_value()
+      |> sanitize_log_value()
   end
 
   defp notification_field(_payload, _params, _key), do: nil
