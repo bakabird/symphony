@@ -1,9 +1,36 @@
-Set up Symphony for my repository based on /Users/yang/AgentPiper/MissionCenterWIP/elixir/README.md.
-- 应用 /Users/yang/AgentPiper/MissionCenterWIP/elixir/WORKFLOW.md 这个模版。
-    - 在本地的 LinearLabel.md 中，依照 WORKFLOW.md，用简洁的语言介绍和 验证任务 相关的 label
-- 在项目目录下，编写本项目专用的 StartMissionCenter.sh，方便后续使用。
-    - 采用 `--i-understand-that-this-will-be-running-without-the-usual-guardrails`
+请基于 `/Users/yang/AgentPiper/MissionCenterWIP/elixir/README.md`，为我的仓库准备一套可直接落地的 Symphony 初始化草稿。
 
-Ask me for the information you need, then produce a ready-to-use WORKFLOW.md draft.
-Do not write application code.
-Reply in Chinese.
+目标产物：
+- `WORKFLOW.md`
+- `LinearLabel.md`
+- `StartMissionCenter.sh`
+
+工作原则：
+- 先阅读 `/Users/yang/AgentPiper/MissionCenterWIP/elixir/WORKFLOW.md` 和 README，再决定需要问我什么。
+
+必须确认的信息：
+- 仓库 clone URL
+- Linear project slug
+- workspace 根目录
+- 确认默认使用的 backend，其余的通过注释关闭
+
+关键约束：
+- 回复使用中文。
+- 不要写业务应用代码。
+- 如果信息不足，先提问，不要硬编关键配置。
+- 可以生成配置、文档和 shell 脚本草稿。
+
+对产物的最低要求：
+
+1. `WORKFLOW.md`
+- 以 `/Users/yang/AgentPiper/MissionCenterWIP/elixir/WORKFLOW.md` 为基础定制。
+- 正确填写 `agent_backend.id`，必要时填写 `agent_backend.command`。
+- 保留 `codex` 配置块；如果切到非 `codex_app_server` backend，也不要删掉它。
+
+2. `LinearLabel.md`
+- 用简洁中文解释和验证任务直接相关的 label。
+- 参考 `/Users/yang/AgentPiper/MissionCenterWIP/LinearLabel.md` 的风格。
+
+3. `StartMissionCenter.sh`
+- 面向项目目录内直接启动。
+- 默认包含 `--i-understand-that-this-will-be-running-without-the-usual-guardrails`。
