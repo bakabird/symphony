@@ -28,6 +28,15 @@ hooks:
 agent:
   max_concurrent_agents: 10
   max_turns: 20
+agent_backend:
+  id: codex_app_server
+  # Switch to OpenCode ACP:
+  # id: acp_stdio
+  # command: opencode acp
+  #
+  # Switch to Claude CLI stream mode:
+  # id: claude_cli_stream
+  # command: claude
 codex:
   command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=xhigh --model gpt-5.3-codex app-server
   approval_policy: never
