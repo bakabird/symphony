@@ -117,6 +117,9 @@ Notes:
   - `codex_app_server` (default compatibility path; still uses the `codex` block)
   - `acp_stdio` (defaults to `opencode acp` unless `agent_backend.command` is set)
   - `claude_cli_stream` (defaults to `claude` unless `agent_backend.command` is set)
+- When `agent_backend.id` is `claude_cli_stream`, `SYMPHONY_CLAUDE_LOG_LEVEL` controls Claude-only logging.
+  Supported values are `off`, `info`, `debug`, and `trace`; invalid or unset values default to `info`.
+  The setting is read once per Claude session and still writes through the shared application log sink.
 - Safer Codex defaults are used when policy fields are omitted:
   - `codex.approval_policy` defaults to `{"reject":{"sandbox_approval":true,"rules":true,"mcp_elicitations":true}}`
   - `codex.thread_sandbox` defaults to `workspace-write`

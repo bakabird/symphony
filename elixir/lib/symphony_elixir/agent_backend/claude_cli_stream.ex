@@ -4,6 +4,8 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
   the same Claude session across logical Symphony turns.
   """
 
+  require Logger
+
   @behaviour SymphonyElixir.AgentBackend
 
   alias SymphonyElixir.AgentBackend
@@ -11,6 +13,8 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
   alias SymphonyElixir.Config
 
   @backend_name :claude_cli_stream
+  @claude_log_env "SYMPHONY_CLAUDE_LOG_LEVEL"
+  @claude_log_level_rank %{off: 0, info: 1, debug: 2, trace: 3}
 
   @impl true
   def start_session(context, _opts) do
@@ -19,6 +23,7 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
     initial_state = %{
       command: backend_settings.command,
       on_event: AgentBackend.value_from(context, :on_event) || fn _event -> :ok end,
+      claude_log_level: resolve_claude_log_level(),
       raw_session_id: nil,
       read_timeout_ms: backend_settings.read_timeout_ms,
       turn_timeout_ms: backend_settings.turn_timeout_ms,
@@ -33,6 +38,8 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
   def run_turn(session_pid, turn, _opts) when is_pid(session_pid) do
     state = Agent.get(session_pid, & &1)
     command = claude_command(state.command, turn.prompt, state.raw_session_id)
+
+    log_claude_message(state, :info, fn -> command end)
 
     with {:ok, port_session} <- CommandPort.start(state.workspace, state.worker_host, command),
          result <- consume_stream(state, port_session, turn) do
@@ -171,6 +178,8 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
 
   defp emit_event(state, metadata, acc, turn_id, payload) when is_map(payload) do
     if acc.raw_session_id do
+      log_claude_event(state, payload, acc, turn_id)
+
       state.on_event.(
         AgentBackend.normalize_runtime_event(
           @backend_name,
@@ -238,4 +247,94 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
   end
 
   defp extract_usage(_message), do: nil
+
+  defp resolve_claude_log_level do
+    System.get_env(@claude_log_env)
+    |> normalize_claude_log_level()
+  end
+
+  defp normalize_claude_log_level(nil), do: :info
+
+  defp normalize_claude_log_level(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "off" -> :off
+      "info" -> :info
+      "debug" -> :debug
+      "trace" -> :trace
+      _ -> :info
+    end
+  end
+
+  defp log_claude_event(state, payload, acc, turn_id) do
+    case claude_event_log_level(payload.event) do
+      nil ->
+        :ok
+
+      required_level ->
+        log_claude_message(state, required_level, fn ->
+          claude_event_message(state, payload, acc, turn_id)
+        end)
+    end
+  end
+
+  defp claude_event_log_level(:session_started), do: :info
+  defp claude_event_log_level(:turn_completed), do: :info
+  defp claude_event_log_level(:turn_failed), do: :info
+  defp claude_event_log_level(:notification), do: :debug
+  defp claude_event_log_level(:malformed), do: :debug
+  defp claude_event_log_level(_other), do: nil
+
+  defp claude_event_message(state, payload, acc, turn_id) do
+    session_id = acc.composite_session_id || acc.raw_session_id || "unknown"
+    thread_id = acc.raw_session_id || "unknown"
+
+    base_message =
+      case payload.event do
+        :session_started ->
+          "Claude session started session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
+
+        :notification ->
+          "Claude notification session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id} type=#{inspect(message_type(payload[:payload]))}"
+
+        :turn_completed ->
+          "Claude turn completed session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
+
+        :turn_failed ->
+          "Claude turn failed session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id} subtype=#{inspect(Map.get(payload[:payload], "subtype"))}"
+
+        :malformed ->
+          "Claude malformed payload session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
+
+        other ->
+          "Claude event=#{inspect(other)} session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
+      end
+
+    if state.claude_log_level == :trace do
+      base_message <> " payload=#{inspect(payload[:payload], limit: 10, printable_limit: 120)}"
+    else
+      base_message
+    end
+  end
+
+  defp log_claude_message(state, required_level, message_fun) when is_function(message_fun, 0) do
+    if claude_log_level_enabled?(state.claude_log_level, required_level) do
+      log_message = message_fun.()
+
+      case logger_level_for_claude_level(required_level) do
+        :debug -> Logger.debug(log_message)
+        _ -> Logger.info(log_message)
+      end
+    end
+  end
+
+  defp claude_log_level_enabled?(current_level, required_level) do
+    claude_log_level_rank(current_level) >= claude_log_level_rank(required_level)
+  end
+
+  defp claude_log_level_rank(level), do: Map.get(@claude_log_level_rank, level, 1)
+
+  defp logger_level_for_claude_level(:debug), do: :debug
+  defp logger_level_for_claude_level(:trace), do: :debug
+  defp logger_level_for_claude_level(:info), do: :info
+  defp logger_level_for_claude_level(_other), do: :info
 end
