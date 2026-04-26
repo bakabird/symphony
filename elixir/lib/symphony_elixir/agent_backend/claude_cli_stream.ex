@@ -105,49 +105,10 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
   end
 
   defp handle_stream_message(state, port_session, turn_id, acc, message) do
-    raw_session_id = extract_session_id(message) || acc.raw_session_id
-    composite_session_id = acc.composite_session_id || composite_session_id(raw_session_id, turn_id)
-
-    acc =
-      %{
-        acc
-        | raw_session_id: raw_session_id,
-          composite_session_id: composite_session_id
-      }
-
-    acc =
-      if raw_session_id && not acc.emitted_session_started? do
-        emit_event(state, port_session.metadata, acc, turn_id, %{
-          event: :session_started,
-          payload: message
-        })
-      else
-        acc
-      end
-
-    if acc.result_message do
-      acc
-    else
-      case message_type(message) do
-        "result" ->
-          subtype = Map.get(message, "subtype")
-          event = if subtype == "success", do: :turn_completed, else: :turn_failed
-
-          emit_event(state, port_session.metadata, acc, turn_id, %{
-            event: event,
-            payload: message,
-            usage: extract_usage(message)
-          })
-          |> Map.put(:result_message, message)
-
-        _ ->
-          emit_event(state, port_session.metadata, acc, turn_id, %{
-            event: :notification,
-            payload: message,
-            usage: extract_usage(message)
-          })
-      end
-    end
+    acc
+    |> update_stream_session_ids(message, turn_id)
+    |> maybe_emit_session_started(state, port_session.metadata, turn_id, message)
+    |> maybe_emit_stream_message(state, port_session.metadata, turn_id, message)
   end
 
   defp finalize_turn(session_pid, {:port_exit, status, %{result_message: result_message} = acc}, turn)
@@ -175,6 +136,85 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
   end
 
   defp finalize_turn(_session_pid, {:error, reason, _acc}, _turn), do: {:error, reason}
+
+  defp update_stream_session_ids(acc, message, turn_id) do
+    raw_session_id = extract_session_id(message) || acc.raw_session_id
+    composite_session_id = acc.composite_session_id || composite_session_id(raw_session_id, turn_id)
+
+    %{
+      acc
+      | raw_session_id: raw_session_id,
+        composite_session_id: composite_session_id
+    }
+  end
+
+  defp maybe_emit_session_started(
+         %{raw_session_id: nil} = acc,
+         _state,
+         _metadata,
+         _turn_id,
+         _message
+       ) do
+    acc
+  end
+
+  defp maybe_emit_session_started(
+         %{emitted_session_started?: true} = acc,
+         _state,
+         _metadata,
+         _turn_id,
+         _message
+       ) do
+    acc
+  end
+
+  defp maybe_emit_session_started(acc, state, metadata, turn_id, message) do
+    emit_event(state, metadata, acc, turn_id, %{
+      event: :session_started,
+      payload: message
+    })
+  end
+
+  defp maybe_emit_stream_message(
+         %{result_message: result_message} = acc,
+         _state,
+         _metadata,
+         _turn_id,
+         _message
+       )
+       when not is_nil(result_message) do
+    acc
+  end
+
+  defp maybe_emit_stream_message(acc, state, metadata, turn_id, message) do
+    case message_type(message) do
+      "result" ->
+        emit_stream_result(state, metadata, acc, turn_id, message)
+
+      _ ->
+        emit_stream_notification(state, metadata, acc, turn_id, message)
+    end
+  end
+
+  defp emit_stream_result(state, metadata, acc, turn_id, message) do
+    subtype = Map.get(message, "subtype")
+    event = if subtype == "success", do: :turn_completed, else: :turn_failed
+
+    emit_event(state, metadata, acc, turn_id, %{
+      event: event,
+      payload: message,
+      usage: extract_usage(message)
+    })
+    |> Map.put(:result_message, message)
+  end
+
+  defp emit_stream_notification(state, metadata, acc, turn_id, message) do
+    emit_event(state, metadata, acc, turn_id, %{
+      event: :notification,
+      payload: message,
+      usage: extract_usage(message)
+    })
+  end
 
   defp emit_event(state, metadata, acc, turn_id, payload) when is_map(payload) do
     if acc.raw_session_id do
@@ -288,32 +328,37 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
     session_id = acc.composite_session_id || acc.raw_session_id || "unknown"
     thread_id = acc.raw_session_id || "unknown"
 
-    base_message =
-      case payload.event do
-        :session_started ->
-          "Claude session started session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
-
-        :notification ->
-          "Claude notification session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id} type=#{inspect(message_type(payload[:payload]))}"
-
-        :turn_completed ->
-          "Claude turn completed session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
-
-        :turn_failed ->
-          "Claude turn failed session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id} subtype=#{inspect(Map.get(payload[:payload], "subtype"))}"
-
-        :malformed ->
-          "Claude malformed payload session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
-
-        other ->
-          "Claude event=#{inspect(other)} session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
-      end
+    base_message = claude_event_base_message(payload.event, session_id, thread_id, turn_id, payload)
 
     if state.claude_log_level == :trace do
       base_message <> " payload=#{inspect(payload[:payload], limit: 10, printable_limit: 120)}"
     else
       base_message
     end
+  end
+
+  defp claude_event_base_message(:session_started, session_id, thread_id, turn_id, _payload) do
+    "Claude session started session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
+  end
+
+  defp claude_event_base_message(:notification, session_id, thread_id, turn_id, payload) do
+    "Claude notification session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id} type=#{inspect(message_type(payload[:payload]))}"
+  end
+
+  defp claude_event_base_message(:turn_completed, session_id, thread_id, turn_id, _payload) do
+    "Claude turn completed session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
+  end
+
+  defp claude_event_base_message(:turn_failed, session_id, thread_id, turn_id, payload) do
+    "Claude turn failed session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id} subtype=#{inspect(Map.get(payload[:payload], "subtype"))}"
+  end
+
+  defp claude_event_base_message(:malformed, session_id, thread_id, turn_id, _payload) do
+    "Claude malformed payload session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
+  end
+
+  defp claude_event_base_message(other, session_id, thread_id, turn_id, _payload) do
+    "Claude event=#{inspect(other)} session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
   end
 
   defp log_claude_message(state, required_level, message_fun) when is_function(message_fun, 0) do

@@ -2,6 +2,7 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStreamTest do
   use SymphonyElixir.TestSupport
 
   alias SymphonyElixir.AgentBackend.ClaudeCliStream
+  alias SymphonyElixir.AgentBackend.CommandPort
 
   test "claude cli stream backend resolves Claude log level from env and falls back to info" do
     with_claude_log_level("trace", fn ->
@@ -232,7 +233,7 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStreamTest do
     resume_arg =
       case resume_session_id do
         session_id when is_binary(session_id) and session_id != "" ->
-          " --resume " <> SymphonyElixir.AgentBackend.CommandPort.shell_escape(session_id)
+          " --resume " <> CommandPort.shell_escape(session_id)
 
         _ ->
           ""
@@ -241,7 +242,7 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStreamTest do
     base_command <>
       " --print --output-format stream-json --verbose --include-partial-messages" <>
       resume_arg <>
-      " " <> SymphonyElixir.AgentBackend.CommandPort.shell_escape(prompt)
+      " " <> CommandPort.shell_escape(prompt)
   end
 
   defp run_claude_turn_with_log_level(context, level, prompt) do

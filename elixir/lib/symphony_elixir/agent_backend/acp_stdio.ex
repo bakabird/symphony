@@ -169,117 +169,11 @@ defmodule SymphonyElixir.AgentBackend.AcpStdio do
 
   defp await_prompt_completion(session, prompt_id, session_id, turn_id) do
     case CommandPort.receive_json(session.port, session.turn_timeout_ms) do
-      {:ok, %{"id" => ^prompt_id, "result" => result} = payload, _pending_line} ->
-        emit_event(
-          session,
-          %{
-            event: :turn_completed,
-            session_id: session_id,
-            thread_id: session.session_id,
-            turn_id: turn_id,
-            payload: payload
-          }
-        )
-
-        {:ok,
-         %{
-           backend: @backend_name,
-           result: result,
-           session_id: session_id,
-           thread_id: session.session_id,
-           turn_id: turn_id
-         }}
-
-      {:ok, %{"id" => ^prompt_id, "error" => error} = payload, _pending_line} ->
-        emit_event(
-          session,
-          %{
-            event: :turn_failed,
-            session_id: session_id,
-            thread_id: session.session_id,
-            turn_id: turn_id,
-            payload: payload
-          }
-        )
-
-        {:error, {:json_rpc_error, error}}
-
-      {:ok, %{"method" => "session/update"} = payload, _pending_line} ->
-        emit_event(
-          session,
-          %{
-            event: :notification,
-            session_id: session_id,
-            thread_id: session.session_id,
-            turn_id: turn_id,
-            payload: payload
-          }
-        )
-
-        await_prompt_completion(session, prompt_id, session_id, turn_id)
-
-      {:ok, %{"id" => request_id, "method" => "session/request_permission", "params" => params} = payload, _pending_line}
-      when is_integer(request_id) or is_binary(request_id) ->
-        respond_to_permission_request(session.port, request_id, params)
-
-        emit_event(
-          session,
-          %{
-            event: :notification,
-            session_id: session_id,
-            thread_id: session.session_id,
-            turn_id: turn_id,
-            payload: payload
-          }
-        )
-
-        await_prompt_completion(session, prompt_id, session_id, turn_id)
-
-      {:ok, %{"id" => request_id, "method" => method} = payload, _pending_line}
-      when (is_integer(request_id) or is_binary(request_id)) and is_binary(method) ->
-        respond_method_not_found(session.port, request_id, method)
-
-        emit_event(
-          session,
-          %{
-            event: :notification,
-            session_id: session_id,
-            thread_id: session.session_id,
-            turn_id: turn_id,
-            payload: payload
-          }
-        )
-
-        await_prompt_completion(session, prompt_id, session_id, turn_id)
-
       {:ok, payload, _pending_line} ->
-        emit_event(
-          session,
-          %{
-            event: :notification,
-            session_id: session_id,
-            thread_id: session.session_id,
-            turn_id: turn_id,
-            payload: payload
-          }
-        )
-
-        await_prompt_completion(session, prompt_id, session_id, turn_id)
+        handle_prompt_completion_payload(session, prompt_id, session_id, turn_id, payload)
 
       {:malformed, raw, _pending_line} ->
-        emit_event(
-          session,
-          %{
-            event: :malformed,
-            session_id: session_id,
-            thread_id: session.session_id,
-            turn_id: turn_id,
-            payload: raw,
-            raw: raw
-          }
-        )
-
-        await_prompt_completion(session, prompt_id, session_id, turn_id)
+        handle_prompt_completion_malformed(session, prompt_id, session_id, turn_id, raw)
 
       {:error, :timeout} ->
         {:error, :turn_timeout}
@@ -287,6 +181,79 @@ defmodule SymphonyElixir.AgentBackend.AcpStdio do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp handle_prompt_completion_payload(
+         session,
+         prompt_id,
+         session_id,
+         turn_id,
+         %{"id" => request_id, "result" => result} = payload
+       )
+       when request_id == prompt_id do
+    emit_prompt_event(session, session_id, turn_id, :turn_completed, payload)
+
+    {:ok,
+     %{
+       backend: @backend_name,
+       result: result,
+       session_id: session_id,
+       thread_id: session.session_id,
+       turn_id: turn_id
+     }}
+  end
+
+  defp handle_prompt_completion_payload(
+         session,
+         prompt_id,
+         session_id,
+         turn_id,
+         %{"id" => request_id, "error" => error} = payload
+       )
+       when request_id == prompt_id do
+    emit_prompt_event(session, session_id, turn_id, :turn_failed, payload)
+    {:error, {:json_rpc_error, error}}
+  end
+
+  defp handle_prompt_completion_payload(session, prompt_id, session_id, turn_id, %{"method" => "session/update"} = payload) do
+    emit_prompt_event(session, session_id, turn_id, :notification, payload)
+    await_prompt_completion(session, prompt_id, session_id, turn_id)
+  end
+
+  defp handle_prompt_completion_payload(
+         session,
+         prompt_id,
+         session_id,
+         turn_id,
+         %{"id" => request_id, "method" => "session/request_permission", "params" => params} = payload
+       )
+       when is_integer(request_id) or is_binary(request_id) do
+    respond_to_permission_request(session.port, request_id, params)
+    emit_prompt_event(session, session_id, turn_id, :notification, payload)
+    await_prompt_completion(session, prompt_id, session_id, turn_id)
+  end
+
+  defp handle_prompt_completion_payload(
+         session,
+         prompt_id,
+         session_id,
+         turn_id,
+         %{"id" => request_id, "method" => method} = payload
+       )
+       when (is_integer(request_id) or is_binary(request_id)) and is_binary(method) do
+    respond_method_not_found(session.port, request_id, method)
+    emit_prompt_event(session, session_id, turn_id, :notification, payload)
+    await_prompt_completion(session, prompt_id, session_id, turn_id)
+  end
+
+  defp handle_prompt_completion_payload(session, prompt_id, session_id, turn_id, payload) do
+    emit_prompt_event(session, session_id, turn_id, :notification, payload)
+    await_prompt_completion(session, prompt_id, session_id, turn_id)
+  end
+
+  defp handle_prompt_completion_malformed(session, prompt_id, session_id, turn_id, raw) do
+    emit_prompt_event(session, session_id, turn_id, :malformed, raw, %{raw: raw})
+    await_prompt_completion(session, prompt_id, session_id, turn_id)
   end
 
   defp respond_to_permission_request(port, request_id, params) do
@@ -309,7 +276,7 @@ defmodule SymphonyElixir.AgentBackend.AcpStdio do
       "jsonrpc" => "2.0",
       "id" => request_id,
       "error" => %{
-        "code" => -32601,
+        "code" => -32_601,
         "message" => "Unsupported ACP client method #{method}"
       }
     })
@@ -354,6 +321,20 @@ defmodule SymphonyElixir.AgentBackend.AcpStdio do
   end
 
   defp close_supported?(_capabilities), do: false
+
+  defp emit_prompt_event(session, session_id, turn_id, event, payload, extra_payload \\ %{}) do
+    emit_event(
+      session,
+      %{
+        event: event,
+        session_id: session_id,
+        thread_id: session.session_id,
+        turn_id: turn_id,
+        payload: payload
+      }
+      |> Map.merge(extra_payload)
+    )
+  end
 
   defp composite_session_id(raw_session_id, turn_id) when is_binary(raw_session_id) and is_binary(turn_id) do
     "#{raw_session_id}-turn-#{turn_id}"

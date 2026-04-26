@@ -569,30 +569,20 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp notification_params(_payload), do: %{}
 
   defp notification_field(payload, params, key) when is_map(payload) and is_map(params) and is_binary(key) do
-    atom_key =
-      case key do
-        "threadId" -> :threadId
-        "turnId" -> :turnId
-        _ -> nil
-      end
-
+    atom_key = notification_atom_key(key)
     snake_key = String.replace_suffix(key, "Id", "_id")
+    snake_atom_key = notification_snake_atom_key(key)
 
-    snake_atom_key =
-      case key do
-        "threadId" -> :thread_id
-        "turnId" -> :turn_id
-        _ -> nil
-      end
-
-    params[key] ||
-      (is_atom(atom_key) && params[atom_key]) ||
-      payload[key] ||
-      (is_atom(atom_key) && payload[atom_key]) ||
-      payload[snake_key] ||
-      (is_atom(snake_atom_key) && payload[snake_atom_key]) ||
-      nil
-      |> sanitize_log_value()
+    [
+      Map.get(params, key),
+      map_get(params, atom_key),
+      Map.get(payload, key),
+      map_get(payload, atom_key),
+      Map.get(payload, snake_key),
+      map_get(payload, snake_atom_key)
+    ]
+    |> Enum.find_value(& &1)
+    |> sanitize_log_value()
   end
 
   defp notification_field(_payload, _params, _key), do: nil
@@ -637,17 +627,20 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   defp notification_message(payload, params, payload_string)
        when is_map(payload) and is_map(params) and is_binary(payload_string) do
-    (params["message"] ||
-       params[:message] ||
-       get_in(params, ["error", "message"]) ||
-       get_in(params, [:error, :message]) ||
-       get_in(params, ["error", "data", "message"]) ||
-       get_in(params, [:error, :data, :message]) ||
-       payload["message"] ||
-       payload[:message] ||
-       get_in(payload, ["error", "message"]) ||
-       get_in(payload, [:error, :message]) ||
-       payload_string)
+    [
+      Map.get(params, "message"),
+      Map.get(params, :message),
+      get_in(params, ["error", "message"]),
+      get_in(params, [:error, :message]),
+      get_in(params, ["error", "data", "message"]),
+      get_in(params, [:error, :data, :message]),
+      Map.get(payload, "message"),
+      Map.get(payload, :message),
+      get_in(payload, ["error", "message"]),
+      get_in(payload, [:error, :message]),
+      payload_string
+    ]
+    |> Enum.find_value(& &1)
     |> sanitize_log_value()
   end
 
@@ -687,6 +680,17 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp sanitize_log_value(value), do: value
+
+  defp notification_atom_key("threadId"), do: :threadId
+  defp notification_atom_key("turnId"), do: :turnId
+  defp notification_atom_key(_key), do: nil
+
+  defp notification_snake_atom_key("threadId"), do: :thread_id
+  defp notification_snake_atom_key("turnId"), do: :turn_id
+  defp notification_snake_atom_key(_key), do: nil
+
+  defp map_get(_map, nil), do: nil
+  defp map_get(map, key) when is_map(map) and is_atom(key), do: Map.get(map, key)
 
   defp maybe_handle_approval_request(
          port,
