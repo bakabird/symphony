@@ -1272,6 +1272,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.workflow_prompt() == workflow_prompt
   end
 
+  test "normalize_backend_id preserves non-binary values" do
+    assert Schema.normalize_backend_id(:acp_stdio) == :acp_stdio
+  end
+
   test "remote workspace lifecycle uses ssh host aliases from worker config" do
     test_root =
       Path.join(

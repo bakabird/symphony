@@ -162,15 +162,9 @@ defmodule SymphonyElixir.AgentBackend.CommandPort do
   end
 
   defp port_metadata(port, worker_host) when is_port(port) do
-    base_metadata =
-      case :erlang.port_info(port, :os_pid) do
-        {:os_pid, os_pid} ->
-          pid = to_string(os_pid)
-          %{worker_pid: pid, codex_app_server_pid: pid}
-
-        _ ->
-          %{}
-      end
+    {:os_pid, os_pid} = :erlang.port_info(port, :os_pid)
+    pid = to_string(os_pid)
+    base_metadata = %{worker_pid: pid, codex_app_server_pid: pid}
 
     case worker_host do
       host when is_binary(host) -> Map.put(base_metadata, :worker_host, host)
