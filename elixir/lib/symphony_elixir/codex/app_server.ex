@@ -597,8 +597,6 @@ defmodule SymphonyElixir.Codex.AppServer do
     params["itemId"] || params[:itemId] || params["callId"] || params[:callId] || params["requestId"] || params[:requestId]
   end
 
-  defp notification_item_id(_params), do: nil
-
   defp notification_code(payload, params) when is_map(payload) and is_map(params) do
     params["code"] ||
       params[:code] ||
@@ -663,8 +661,6 @@ defmodule SymphonyElixir.Codex.AppServer do
 
     if keys == [], do: nil, else: keys
   end
-
-  defp notification_params_keys(_params), do: nil
 
   defp sanitize_log_value(value) when is_binary(value) do
     value

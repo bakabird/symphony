@@ -98,9 +98,6 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
 
       {:error, :timeout} ->
         {:error, :turn_timeout, acc}
-
-      {:error, reason} ->
-        {:error, reason, acc}
     end
   end
 
@@ -277,16 +274,12 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
       get_in(message, [:data, :session_id])
   end
 
-  defp extract_session_id(_message), do: nil
-
   defp extract_usage(message) when is_map(message) do
     Map.get(message, "usage") ||
       Map.get(message, :usage) ||
       get_in(message, ["message", "usage"]) ||
       get_in(message, [:message, :usage])
   end
-
-  defp extract_usage(_message), do: nil
 
   defp resolve_claude_log_level do
     System.get_env(@claude_log_env)
@@ -307,9 +300,6 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
 
   defp log_claude_event(state, payload, acc, turn_id) do
     case claude_event_log_level(payload.event) do
-      nil ->
-        :ok
-
       required_level ->
         log_claude_message(state, required_level, fn ->
           claude_event_message(state, payload, acc, turn_id)
@@ -322,7 +312,6 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
   defp claude_event_log_level(:turn_failed), do: :info
   defp claude_event_log_level(:notification), do: :debug
   defp claude_event_log_level(:malformed), do: :debug
-  defp claude_event_log_level(_other), do: nil
 
   defp claude_event_message(state, payload, acc, turn_id) do
     session_id = acc.composite_session_id || acc.raw_session_id || "unknown"
@@ -357,10 +346,6 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
     "Claude malformed payload session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
   end
 
-  defp claude_event_base_message(other, session_id, thread_id, turn_id, _payload) do
-    "Claude event=#{inspect(other)} session_id=#{session_id} thread_id=#{thread_id} turn_id=#{turn_id}"
-  end
-
   defp log_claude_message(state, required_level, message_fun) when is_function(message_fun, 0) do
     if claude_log_level_enabled?(state.claude_log_level, required_level) do
       log_message = message_fun.()
@@ -379,7 +364,5 @@ defmodule SymphonyElixir.AgentBackend.ClaudeCliStream do
   defp claude_log_level_rank(level), do: Map.get(@claude_log_level_rank, level, 1)
 
   defp logger_level_for_claude_level(:debug), do: :debug
-  defp logger_level_for_claude_level(:trace), do: :debug
   defp logger_level_for_claude_level(:info), do: :info
-  defp logger_level_for_claude_level(_other), do: :info
 end
