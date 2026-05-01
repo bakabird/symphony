@@ -26,6 +26,11 @@
 - 以 `/Users/yang/AgentPiper/MissionCenterWIP/elixir/WORKFLOW.md` 为基础定制。
 - 正确填写 `agent_backend.id`，必要时填写 `agent_backend.command`。
 - 保留 `codex` 配置块；如果切到非 `codex_app_server` backend，也不要删掉它。
+- 不要删减状态流和 PR review 相关规则：
+  - `Human Review` 是非 active state，只等待人工审批或人工拉回 active state。
+  - 从 `Human Review` 回到 `Todo` / `In Progress` 且已有 PR 时，必须先处理 PR feedback sweep。
+  - PR feedback sweep 必须覆盖 top-level PR comments、inline review comments、unresolved review threads 和 review summaries/states；actionable feedback 必须修复或回复明确 pushback 后才能回到 `Human Review`。
+  - `ReWork` / `Rework` 表示 full approach reset，不用于普通 PR review comment 的增量处理。
 
 2. `LinearLabel.md`
 - 用简洁中文解释和验证任务直接相关的 label。
