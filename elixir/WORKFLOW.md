@@ -2,6 +2,8 @@
 tracker:
   kind: linear
   project_slug: "symphony-0c79b11b75ea"
+  # Active states are the only states Symphony dispatches to local agents.
+  # Do not include `Workflow Review`: GitHub Actions owns that non-active gate.
   active_states:
     - Todo
     - In Progress
@@ -208,11 +210,13 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 
 - `Backlog` -> out of scope for this workflow; do not modify.
 - `Todo` -> queued; immediately transition to `In Progress` before active work.
-  - Special case: if a PR is already attached, treat as feedback/rework loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to `Human Review`).
+  - Special case: if a PR is already attached and the workpad includes a `Workflow Review Handoff`, treat this as Workflow Review re-entry. Fetch unresolved prReviewer review threads, read current fallback findings from `pr-reviewer-state`, address or explicitly push back on each blocking item, reply with `[codex]` in each handled thread before resolving it, revalidate, push, and return to `Workflow Review`.
+  - Special case: if a PR is already attached without a Workflow Review handoff, treat as feedback/rework loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to `Workflow Review`).
 - `In Progress` -> implementation actively underway.
+- `Workflow Review` -> PR is attached and validated; external GitHub Actions automatic PR review gate is running or awaiting diagnostics. This is a non-active state; Symphony must not dispatch a local agent for it.
 - `Human Review` -> PR is attached and validated; waiting on human approval.
 - `Merging` -> approved by human; execute the `land` skill flow (do not call `gh pr merge` directly).
-- `Rework` -> reviewer requested changes; planning + implementation required.
+- `Rework` -> human-directed full approach reset; not used for normal prReviewer medium/high feedback.
 - `Done` -> terminal state; no further action required.
 
 ## Step 0: Determine current ticket state and route
@@ -224,7 +228,8 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
    - `Todo` -> immediately move to `In Progress`, then ensure bootstrap workpad comment exists (create if missing), then start execution flow.
      - If PR is already attached, start by reviewing all open PR comments and deciding required changes vs explicit pushback responses.
    - `In Progress` -> continue execution flow from current scratchpad comment.
-   - `Human Review` -> wait and poll for decision/review updates.
+   - `Workflow Review` -> do not code or change ticket content; wait for the automatic GitHub Actions review gate to move the issue to `Human Review`, return it to `Todo`, or leave diagnostics.
+   - `Human Review` -> wait and poll for human decision/review updates.
    - `Merging` -> on entry, open and follow `.codex/skills/land/SKILL.md`; do not call `gh pr merge` directly.
    - `Rework` -> run rework flow.
    - `Done` -> do nothing and shut down.
@@ -268,9 +273,23 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
       - resulting `HEAD` short SHA.
 10. Compact context and proceed to execution.
 
+## Workflow Review re-entry protocol (required)
+
+When a `Todo` ticket has an attached PR and a `Workflow Review Handoff`, run this protocol before new feature work:
+
+1. Move the issue to `In Progress`.
+2. Identify the PR number from issue links/attachments.
+3. Fetch unresolved GitHub review threads through GraphQL so `isResolved` is available, and filter to prReviewer-authored threads.
+4. Read current fallback findings from the existing `pr-reviewer-state` comment, specifically `gate.fallback_findings`; do not treat historical fallback comments as source of truth.
+5. Add every unresolved prReviewer medium/high or unparseable inline finding and every current fallback finding to the workpad checklist.
+6. For each blocking inline thread, either update code/tests/docs to address it or post a justified pushback reply beginning with `[codex]`.
+7. Resolve a prReviewer inline thread only after posting the `[codex]` reply explaining the fix or pushback.
+8. If a finding requires human product judgment, conflicts with task requirements, or cannot be responsibly resolved, leave the relevant thread unresolved and move the issue directly to `Human Review` with a concise workpad handoff brief.
+9. Re-run required validation after feedback-driven changes, push the branch, move the issue back to `Workflow Review`, and dispatch the automatic PR review workflow with the PR number and expected head SHA.
+
 ## PR feedback sweep protocol (required)
 
-When a ticket has an attached PR, run this protocol before moving to `Human Review`:
+When a ticket has an attached PR, run this protocol before moving to `Workflow Review`:
 
 1. Identify the PR number from issue links/attachments.
 2. Gather feedback from all channels:
@@ -296,7 +315,7 @@ Use this only when completion is blocked by missing required tools or missing au
   - exact human action needed to unblock.
 - Keep the brief concise and action-oriented; do not add extra top-level comments outside the workpad.
 
-## Step 2: Execution phase (Todo -> In Progress -> Human Review)
+## Step 2: Execution phase (Todo -> In Progress -> Workflow Review)
 
 1.  Determine current repo state (`branch`, `git status`, `HEAD`) and verify the kickoff `pull` sync result is already recorded in the workpad before implementation continues.
 2.  If current issue state is `Todo`, move it to `In Progress`; otherwise leave the current state unchanged.
@@ -328,25 +347,26 @@ Use this only when completion is blocked by missing required tools or missing au
     - Do not include PR URL in the workpad comment; keep PR linkage on the issue via attachment/link fields.
     - Add a short `### Confusions` section at the bottom when any part of task execution was unclear/confusing, with concise bullets.
     - Do not post any additional completion summary comment.
-11. Before moving to `Human Review`, poll PR feedback and checks:
+11. Before moving to `Workflow Review`, poll PR feedback and checks:
     - Read the PR `Manual QA Plan` comment (when present) and use it to sharpen UI/runtime test coverage for the current change.
     - Run the full PR feedback sweep protocol.
     - Confirm PR checks are passing (green) after the latest changes.
     - Confirm every required ticket-provided validation/test-plan item is explicitly marked complete in the workpad.
     - Repeat this check-address-verify loop until no outstanding comments remain and checks are fully passing.
     - Re-open and refresh the workpad before state transition so `Plan`, `Acceptance Criteria`, and `Validation` exactly match completed work.
-12. Only then move issue to `Human Review`.
-    - Exception: if blocked by missing required non-GitHub tools/auth per the blocked-access escape hatch, move to `Human Review` with the blocker brief and explicit unblock actions.
+12. Only then move issue to `Workflow Review` and dispatch the automatic PR review workflow with the PR number and the current PR head SHA as `expected_head_sha`.
+    - Normal completion must not move directly from `In Progress` to `Human Review`; the automatic Workflow Review gate owns the normal `Workflow Review` -> `Human Review` transition.
+    - Exception: if blocked by missing required non-GitHub tools/auth, conflicting acceptance criteria, task defects, scope/risk decisions, or required human product judgment, move directly to `Human Review` with the blocker or decision brief and explicit unblock actions.
 13. For `Todo` tickets that already had a PR attached at kickoff:
     - Ensure all existing PR feedback was reviewed and resolved, including inline review comments (code changes or explicit, justified pushback response).
     - Ensure branch was pushed with any required updates.
-    - Then move to `Human Review`.
+    - Then move to `Workflow Review`, unless a direct `Human Review` exception applies.
 
 ## Step 3: Human Review and merge handling
 
 1. When the issue is in `Human Review`, do not code or change ticket content.
 2. Poll for updates as needed, including GitHub PR review comments from humans and bots.
-3. If review feedback requires changes, move the issue to `Rework` and follow the rework flow.
+3. If human review feedback requires a full approach reset, move the issue to `Rework` and follow the rework flow. Normal prReviewer medium/high feedback returns through `Workflow Review` -> `Todo`, not `Rework`.
 4. If approved, human moves the issue to `Merging`.
 5. When the issue is in `Merging`, open and follow `.codex/skills/land/SKILL.md`, then run the `land` skill in a loop until the PR is merged. Do not call `gh pr merge` directly.
 6. After merge is complete, move the issue to `Done`.
@@ -363,7 +383,7 @@ Use this only when completion is blocked by missing required tools or missing au
    - Create a new bootstrap `## Codex Workpad` comment.
    - Build a fresh plan/checklist and execute end-to-end.
 
-## Completion bar before Human Review
+## Completion bar before Workflow Review
 
 - Step 1/2 checklist is fully complete and accurately reflected in the single workpad comment.
 - Acceptance criteria and required ticket-provided validation items are complete.
@@ -372,6 +392,8 @@ Use this only when completion is blocked by missing required tools or missing au
 - PR checks are green, branch is pushed, and PR is linked on the issue.
 - Required PR metadata is present (`symphony` label).
 - Runtime validation/media requirements from the resolved validation guidance are complete, or each unavailable level has a concrete handoff reason and residual-risk note.
+- The issue has been moved to `Workflow Review`.
+- The automatic PR review workflow has been dispatched with `pr_number` and `expected_head_sha`.
 
 ## Guardrails
 
@@ -387,7 +409,8 @@ Use this only when completion is blocked by missing required tools or missing au
   title/description/acceptance criteria, same-project assignment, a `related`
   link to the current issue, and `blockedBy` when the follow-up depends on the
   current issue.
-- Do not move to `Human Review` unless the `Completion bar before Human Review` is satisfied.
+- Do not move completed implementation directly to `Human Review`; satisfy the `Completion bar before Workflow Review` and move to `Workflow Review`.
+- Move directly to `Human Review` only for blocker, ambiguity, task defect, missing access, scope/risk, or human-decision handoff cases, and record the reason in the workpad.
 - In `Human Review`, do not make changes; wait and poll.
 - If state is terminal (`Done`), do nothing and shut down.
 - Keep issue text concise, specific, and reviewer-oriented.

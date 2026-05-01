@@ -40,8 +40,20 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
    - To get your project's slug, right-click the project and copy its URL. The slug is part of the
      URL.
    - When creating a workflow based on this repo, note that it depends on non-standard Linear
-     issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
-     Team Settings → Workflow in Linear.
+     issue statuses: "Workflow Review", "Human Review", "Merging", and "Rework". You can customize
+     them in Team Settings → Workflow in Linear.
+   - Keep `Workflow Review` out of `tracker.active_states`. It is a non-active gate owned by the
+     automatic GitHub PR review workflow, not a state that Symphony should dispatch to a local
+     agent.
+   - Normal completed agent work moves from `In Progress` to `Workflow Review`. The automatic
+     review gate moves clean or low-only prReviewer results to `Human Review`, moves unresolved
+     medium/high or unparseable prReviewer findings back to `Todo`, and leaves infrastructure,
+     GitHub mapping, Linear mapping, or parsing failures in `Workflow Review` with diagnostics.
+   - Repositories that use the automatic review gate must configure the PR review workflow with
+     `workflow_dispatch` inputs for `pr_number` and `expected_head_sha`, provide the LLM/prReviewer
+     secrets used by the reviewer action, and provide Linear API access for the gate step so it can
+     read the Linear linkback, update the workpad, and move issues between `Workflow Review`,
+     `Todo`, and `Human Review`.
 6. Follow the instructions below to install the required runtime dependencies and start the service.
 
 ## Prerequisites
